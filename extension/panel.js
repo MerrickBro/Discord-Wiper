@@ -27,26 +27,31 @@ let previewWordQuery = "";
 function filterValues() {
   return { dateEnabled: elements.dateFilterInput.checked, dateMode: elements.dateModeInput.value,
     dateFrom: elements.dateFromInput.value, dateTo: elements.dateToInput.value,
-    wordEnabled: elements.wordFilterInput.checked, wordMode: elements.wordModeInput.value, wordQuery: elements.wordQueryInput.value };
+    wordEnabled: elements.wordFilterInput.checked, wordMode: elements.wordModeInput.value, wordQuery: elements.wordQueryInput.value,
+    wordMatch: elements.wordMatchInput.value, wholeWords: elements.wholeWordsInput.checked, keepPinned: elements.keepPinnedInput.checked,
+    attachmentEnabled: elements.attachmentFilterInput.checked, attachmentMode: elements.attachmentModeInput.value, attachmentType: elements.attachmentTypeInput.value };
 }
 
 function renderFilters(locked) {
   const dateEnabled = elements.dateFilterInput.checked;
   const wordEnabled = elements.wordFilterInput.checked;
+  const attachmentEnabled = elements.attachmentFilterInput.checked;
   const range = ["during", "except"].includes(elements.dateModeInput.value);
   elements.dateFilterFields.hidden = !dateEnabled;
   elements.wordFilterFields.hidden = !wordEnabled;
+  elements.attachmentFilterFields.hidden = !attachmentEnabled;
   elements.dateEndField.hidden = !range;
   elements.dateFromLabel.textContent = range ? "From (inclusive)" : "Date";
-  elements.dateFilterInput.disabled = elements.wordFilterInput.disabled = locked || !preferencesReady;
+  for (const name of ["dateFilterInput", "wordFilterInput", "keepPinnedInput", "attachmentFilterInput"]) elements[name].disabled = locked || !preferencesReady;
   for (const name of ["dateModeInput", "dateFromInput", "dateToInput"]) {
     elements[name].disabled = locked || !preferencesReady || !dateEnabled || (name === "dateToInput" && !range);
   }
-  for (const name of ["wordModeInput", "wordQueryInput"]) elements[name].disabled = locked || !preferencesReady || !wordEnabled;
+  for (const name of ["wordModeInput", "wordQueryInput", "wordMatchInput", "wholeWordsInput"]) elements[name].disabled = locked || !preferencesReady || !wordEnabled;
+  for (const name of ["attachmentModeInput", "attachmentTypeInput"]) elements[name].disabled = locked || !preferencesReady || !attachmentEnabled;
   elements.dateFromInput.required = dateEnabled;
   elements.dateToInput.required = dateEnabled && range;
   elements.wordQueryInput.required = wordEnabled;
-  const activeCount = Number(dateEnabled) + Number(wordEnabled);
+  const activeCount = Number(dateEnabled) + Number(wordEnabled) + Number(elements.keepPinnedInput.checked) + Number(attachmentEnabled);
   elements.filterModeLabel.textContent = activeCount ? `${activeCount} active` : "Off";
 }
 
@@ -78,6 +83,13 @@ function clearError() {
   elements.formError.textContent = "";
 }
 
+function durationLabel(milliseconds) {
+  const seconds = Math.max(0, Math.floor(milliseconds / 1000));
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor(seconds % 3600 / 60);
+  return hours ? `${hours}h ${minutes}m` : minutes ? `${minutes}m ${seconds % 60}s` : `${seconds}s`;
+}
+
 function updateStatus(state) {
   const titles = { idle: "Ready", scanning: "Scanning", ready: "Preview ready", deleting: "Deleting", complete: "Complete", stopped: "Stopped", stopping: "Stopping", error: "Stopped on error" };
   const waiting = state.waitUntil > Date.now() && ["scanning", "deleting"].includes(state.phase);
@@ -85,16 +97,21 @@ function updateStatus(state) {
   elements.statusBadge.dataset.state = badgeState;
   elements.statusText.textContent = state.paused ? "Paused" : waiting ? state.waitReason : titles[state.phase];
   let detail = "Preview first. Nothing deletes automatically.";
-  if (state.phase === "scanning") detail = "Reading accessible history. No messages are being deleted.";
+  if (state.phase === "scanning") detail = state.dateOptimized ? "Reading the selected date windows. Unrelated history is skipped. No messages are being deleted." : "Reading accessible history. No messages are being deleted.";
   if (state.phase === "ready") detail = `${state.matched.toLocaleString()} own messages ready. Start opens the deletion confirmation.`;
-  if (state.phase === "deleting") detail = `${(state.deleted + state.alreadyGone).toLocaleString()} / ${state.matched.toLocaleString()} processed · ${state.alreadyGone.toLocaleString()} already absent.`;
-  if (state.phase === "complete") detail = `Finished · ${state.deleted.toLocaleString()} deleted · ${state.alreadyGone.toLocaleString()} already absent · ${state.skipped.toLocaleString()} unsupported own messages skipped. ${savedTokenPresent ? "Saved token kept." : "Token cleared."}`;
+  if (state.phase === "deleting") detail = `${(state.deleted + state.alreadyGone + state.kept).toLocaleString()} / ${state.matched.toLocaleString()} processed · ${state.alreadyGone.toLocaleString()} already absent · ${state.kept.toLocaleString()} kept after pin checks.`;
+  if (state.phase === "complete") detail = `Finished · ${state.deleted.toLocaleString()} deleted · ${state.alreadyGone.toLocaleString()} already absent · ${state.kept.toLocaleString()} kept after pin checks · ${state.skipped.toLocaleString()} unsupported own messages skipped. ${savedTokenPresent ? "Saved token kept." : "Token cleared."}`;
   if (state.phase === "stopped") detail = `Session and preview cleared. ${savedTokenPresent ? "Saved token kept." : "Token cleared."} A request already sent may have finished.`;
   if (state.phase === "stopping") detail = "Stopping requests and clearing the token. An already-sent deletion may finish.";
   if (state.phase === "error") detail = state.error;
   if (state.paused) detail = "Waiting for Resume. A request already sent may finish. Discord cooldowns remain in effect.";
   else if (waiting) detail = `${state.waitReason}: ${Math.max(0, (state.waitUntil - Date.now()) / 1000).toFixed(1)} s remaining. ${state.phase === "scanning" ? "Preview only." : "Deletion will continue after the wait."}`;
   elements.statusDetail.textContent = detail;
+  elements.timingStats.hidden = state.phase === "idle";
+  elements.elapsedValue.textContent = durationLabel(state.elapsedMs);
+  elements.speedValue.textContent = state.messagesPerMinute === null ? "—" : state.messagesPerMinute.toFixed(1);
+  elements.remainingValue.textContent = state.remainingMs !== null ? state.phase === "complete" ? "Complete" : `≈ ${durationLabel(Math.ceil(state.remainingMs / 1000) * 1000)}${state.paused ? " active" : ""}` :
+    ["scanning", "ready"].includes(state.phase) ? "After Start" : state.phase === "deleting" ? "Learning…" : state.phase === "complete" ? "Complete" : "Stopped";
 }
 
 function renderState(state) {
@@ -121,15 +138,15 @@ function renderState(state) {
   if (state.phase === "scanning") elements.progressBar.removeAttribute("value");
   else {
     elements.progressBar.max = Math.max(1, state.matched);
-    elements.progressBar.value = state.deleted + state.alreadyGone;
+    elements.progressBar.value = state.deleted + state.alreadyGone + state.kept;
   }
   elements.accountDetail.hidden = !state.authorId;
   elements.accountDetail.textContent = `Account ${state.authorId} · ${state.channelKind || "Verifying channel"}`;
   elements.filterDetail.hidden = !state.filtersActive;
   elements.filterDetail.textContent = state.filterSummary;
   elements.filteredDetail.hidden = !state.filtered;
-  elements.filteredDetail.textContent = `${state.filtered.toLocaleString()} own messages excluded by filters.`;
-  if (!active || !state.waitUntil) {
+  elements.filteredDetail.textContent = `${state.filtered.toLocaleString()} own ${state.filtered === 1 ? "message" : "messages"} excluded by filters.`;
+  if (!active && state.phase !== "ready") {
     clearInterval(waitTimer);
     waitTimer = null;
   } else if (!waitTimer) {
@@ -207,7 +224,7 @@ elements.configForm.addEventListener("submit", async event => {
     if (!elements.riskInput.checked) throw new WiperError("Acknowledge the account and permanent deletion risks before making API requests.");
     options = { token: validateToken(elements.tokenInput.value || (elements.rememberTokenInput.checked ? rememberedToken : "")), channelId: validateChannelId(elements.channelInput.value),
       ...validateDelays(Number(elements.minDelayInput.value), Number(elements.maxDelayInput.value)), filters: filterValues() };
-    compileFilters(options.filters);
+    const compiledFilters = compileFilters(options.filters);
     acquiring = true;
     renderState(wiper.state);
     await lease.acquire();
@@ -223,7 +240,7 @@ elements.configForm.addEventListener("submit", async event => {
     clearTokenField();
     acquiring = false;
     const task = wiper.preview(options);
-    previewWordQuery = options.filters.wordEnabled ? options.filters.wordQuery.trim() : "";
+    previewWordQuery = compiledFilters.queries.map(query => JSON.stringify(query)).join(", ");
     options.token = "";
     await task;
   } catch (error) {
@@ -249,8 +266,8 @@ elements.configForm.addEventListener("submit", async event => {
 
 elements.startButton.addEventListener("click", () => {
   if (wiper.state.phase !== "ready") return;
-  elements.confirmDescription.textContent = `This permanently deletes ${wiper.state.matched.toLocaleString()} messages from your verified account in this channel. Messages sent after the preview are excluded. Filter matches are frozen at preview time; later edits do not change this list.`;
-  elements.confirmFilters.textContent = `${wiper.state.filterSummary}${previewWordQuery ? ` · Word / phrase: “${previewWordQuery}”` : ""}`;
+  elements.confirmDescription.textContent = `This permanently deletes up to ${wiper.state.matched.toLocaleString()} messages from your verified account in this channel. Messages sent after the preview are excluded. Word and attachment matches are frozen at preview time; later edits do not change this list.${elements.keepPinnedInput.checked ? " Pin status is rechecked before each deletion; newly pinned messages are kept." : ""}`;
+  elements.confirmFilters.textContent = `${wiper.state.filterSummary}${previewWordQuery ? ` · Terms: ${previewWordQuery}` : ""}`;
   elements.confirmChannel.textContent = wiper.state.channelId;
   elements.confirmAccount.textContent = wiper.state.authorId;
   elements.confirmationInput.value = "";
@@ -372,7 +389,7 @@ elements.speedPresetInput.addEventListener("change", () => {
   persistPreferences();
 });
 elements.tokenInput.addEventListener("input", () => renderState(wiper.state));
-for (const name of ["dateFilterInput", "dateModeInput", "wordFilterInput", "wordModeInput"]) {
+for (const name of ["dateFilterInput", "dateModeInput", "wordFilterInput", "wordModeInput", "wordMatchInput", "wholeWordsInput", "keepPinnedInput", "attachmentFilterInput", "attachmentModeInput", "attachmentTypeInput"]) {
   elements[name].addEventListener("change", () => renderState(wiper.state));
 }
 elements.showTokenButton.addEventListener("click", () => {

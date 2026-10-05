@@ -31,7 +31,7 @@ let context;
 
 function message(offset, author = authorId, extra = {}) {
   return { id: String(1450000000000000000n + BigInt(offset)), channel_id: channelId,
-    author: { id: author }, type: 0, content: privateContent, ...extra };
+    author: { id: author }, type: 0, content: privateContent, pinned: false, attachments: [], ...extra };
 }
 
 const firstPage = [message(9), message(8, otherId), message(7, authorId, { type: 3 }),
@@ -47,6 +47,13 @@ const filterMessages = [datedMessage("2026-10-05T12:00:00Z", filterPhrase),
   datedMessage("2026-10-04T15:00:00Z", "different words"), datedMessage("2026-10-04T12:00:00Z", "FILTER PHRASE"),
   datedMessage("2026-10-03T12:00:00Z", filterPhrase)];
 const filteredCandidate = filterMessages[2].id;
+const advancedMessages = [
+  message(5, authorId, { content: `cat under blue sky · ${privateContent}`, attachments: [{ filename: "private-photo.png" }], pinned: true }),
+  message(4, authorId, { content: `cat under blue sky · ${privateContent}`, attachments: [{ filename: "private-photo.png" }] }),
+  message(3, authorId, { content: `cats under blue sky · ${privateContent}`, attachments: [{ filename: "private-photo.png" }] }),
+  message(2, authorId, { content: `cat under blue sky · ${privateContent}` }),
+  message(1, authorId, { content: `cat under blue sky · ${privateContent}`, attachments: [{ filename: "private-photo.png" }] })
+];
 
 async function waitForPanel(page) {
   await page.locator("#merrickDiscordWiper").waitFor();
@@ -135,18 +142,27 @@ try {
     if (record.method === "GET" && record.path === `/api/v10/channels/${channelId}/messages`) {
       assert.equal(url.searchParams.get("limit"), "100");
       if (scenario === "empty") return reply([]);
-      if (scenario === "filters") {
-        if (!record.before) return reply(filterMessages);
-        assert.equal(record.before, filterMessages.at(-1).id);
-        return reply([]);
+      if (["filters", "advanced"].includes(scenario)) {
+        const values = scenario === "filters" ? filterMessages : advancedMessages;
+        return reply(values.filter(value => !record.before || BigInt(value.id) < BigInt(record.before)).slice(0, 100));
       }
       if (!record.before) return reply(firstPage);
       if (record.before === message(5).id) return reply(secondPage);
       assert.equal(record.before, message(4).id);
       return reply([]);
     }
+    if (record.method === "GET" && scenario === "advanced" && record.path.startsWith(`/api/v10/channels/${channelId}/messages/`)) {
+      const id = record.path.split("/").at(-1);
+      assert.ok([message(4).id, message(1).id].includes(id));
+      const current = advancedMessages.find(value => value.id === id);
+      return reply({ ...current, pinned: id === message(4).id });
+    }
     if (record.method === "DELETE") {
       const id = record.path.split("/").at(-1);
+      if (scenario === "advanced") {
+        assert.equal(id, message(1).id, "Late pins, substrings, and missing attachments must be preserved");
+        return reply(null, 204);
+      }
       if (scenario === "filters") {
         assert.equal(id, filteredCandidate, "Only the confirmed date-and-word match may be deleted");
         return reply(null, 204);
@@ -165,6 +181,10 @@ try {
   await page.goto(`https://discord.com/channels/@me/${channelId}`);
   let frame = await waitForPanel(page);
   assert.equal(await frame.locator("#startButton").isDisabled(), true);
+  assert.equal(await frame.locator("#timingStats").isVisible(), false);
+  for (const id of ["dateFilterInput", "wordFilterInput", "wholeWordsInput", "keepPinnedInput", "attachmentFilterInput"]) {
+    assert.equal(await frame.locator(`#${id}`).isChecked(), false);
+  }
   assert.equal(await page.evaluate(() => document.getElementById("merrickDiscordWiper").shadowRoot), null);
   await capture(page, "dark-ready");
   await frame.locator("#themeButton").click();
@@ -236,6 +256,8 @@ try {
   await frame.locator("#pauseButton").click();
   await waitForState(frame, "complete");
   assert.equal(await frame.locator("#deletedCount").textContent(), "2");
+  assert.equal(await frame.locator("#remainingValue").textContent(), "Complete");
+  assert.notEqual(await frame.locator("#speedValue").textContent(), "—");
   const deletes = requests.filter(request => request.method === "DELETE");
   assert.deepEqual(deletes.map(request => request.path.split("/").at(-1)), [candidates[0], ...candidates]);
   assert.ok(deletes[1].time - deletes[0].time >= 1750);
@@ -306,7 +328,8 @@ try {
   await frame.locator("#previewButton").click();
   await waitForState(frame, "ready");
   assert.equal(await frame.locator("#matchedCount").textContent(), "1");
-  assert.match(await frame.locator("#filteredDetail").textContent(), /3 own messages excluded/);
+  assert.match(await frame.locator("#filteredDetail").textContent(), /2 own messages excluded/);
+  assert.ok(requests.slice(filterRequestStart).find(request => request.path.endsWith("/messages")).before);
   for (const id of ["dateFilterInput", "dateModeInput", "dateFromInput", "dateToInput", "wordFilterInput", "wordModeInput", "wordQueryInput"]) {
     assert.equal(await frame.locator(`#${id}`).isDisabled(), true);
   }
@@ -339,15 +362,45 @@ try {
     !document.getElementById("previewButton").disabled && document.getElementById("matchedCount").textContent === "0");
   assert.equal(await frame.locator("#startButton").isDisabled(), true);
   assert.equal(requests.slice(invalidFilterCount).some(request => request.method === "DELETE"), false);
+  scenario = "advanced";
+  await frame.locator("#wordQueryInput").fill("cat\nblue sky");
+  await frame.locator("#wordMatchInput").selectOption("all");
+  await frame.locator("#wholeWordsInput").check();
+  await frame.locator("#keepPinnedInput").check();
+  await frame.locator("#attachmentFilterInput").check();
+  await frame.locator("#attachmentTypeInput").selectOption("image");
+  await configure(frame);
+  const advancedStart = requests.length;
+  await frame.locator("#previewButton").click();
+  await waitForState(frame, "ready");
+  assert.equal(await frame.locator("#matchedCount").textContent(), "2");
+  for (const id of ["wordMatchInput", "wholeWordsInput", "keepPinnedInput", "attachmentFilterInput", "attachmentTypeInput"]) {
+    assert.equal(await frame.locator(`#${id}`).isDisabled(), true);
+  }
+  assert.equal(await frame.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+  await capture(page, "mobile-advanced-preview");
+  await frame.locator("#startButton").click();
+  assert.match(await frame.locator("#confirmFilters").textContent(), /match all of 2 terms, whole words/);
+  assert.match(await frame.locator("#confirmFilters").textContent(), /"cat", "blue sky"/);
+  await frame.locator("#confirmationInput").fill(channelId);
+  await frame.locator("#permanentInput").check();
+  await frame.locator("#confirmDeleteButton").click();
+  await waitForState(frame, "complete");
+  assert.match(await frame.locator("#statusDetail").textContent(), /1 kept after pin checks/);
+  assert.deepEqual(requests.slice(advancedStart).filter(request => request.method === "DELETE").map(request => request.path.split("/").at(-1)), [message(1).id]);
+  const advancedSettings = await assertPrivateState(frame);
+  assert.ok(!JSON.stringify(advancedSettings).includes("blue sky"));
+  assert.ok(!JSON.stringify(advancedSettings).includes("attachmentEnabled"));
   const filterReloadCount = requests.length;
   await page.reload();
   frame = await waitForPanel(page);
   assert.equal(await frame.locator("#dateFilterInput").isChecked(), false);
   assert.equal(await frame.locator("#wordFilterInput").isChecked(), false);
+  for (const id of ["wholeWordsInput", "keepPinnedInput", "attachmentFilterInput"]) assert.equal(await frame.locator(`#${id}`).isChecked(), false);
   assert.equal(await frame.locator("#wordQueryInput").inputValue(), "");
   assert.equal(requests.length, filterReloadCount);
   scenario = "normal";
-  console.log("Passed: default-off filters, combined local dates and literal words, locked preview, exact filtered deletion, invalid ranges without requests, zero matches, private settings, and reload reset.");
+  console.log("Passed: default-off filters, optimized dates, multiple whole-word rules, attachment metadata, late pin protection, locked confirmation, private settings, and reload reset.");
 
   await frame.locator("#speedPresetInput").selectOption("faster");
   assert.equal(await frame.locator("#minDelayInput").inputValue(), "500");

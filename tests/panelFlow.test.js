@@ -37,7 +37,7 @@ class Element {
   focus() {}
 }
 
-async function createPanel(context, initial = {}, scenario = "normal", messages = [message(1)]) {
+async function createPanel(context, initial = {}, scenario = "normal", messages = [message(1)], currentMessage = id => messages.find(value => value.id === id)) {
   const html = await readFile(new URL("../extension/panel.html", import.meta.url), "utf8");
   const elements = Object.fromEntries([...html.matchAll(/<[^>]+\bid="([^"]+)"[^>]*>/g)]
     .map(match => [match[1], new Element(match[1], match[0])]));
@@ -86,12 +86,18 @@ async function createPanel(context, initial = {}, scenario = "normal", messages 
     fetch: async (url, options) => {
       assert.equal(options.headers.Authorization, testToken);
       const path = new URL(url).pathname;
-      requests.push({ path, method: options.method });
+      requests.push({ path, method: options.method, before: new URL(url).searchParams.get("before") });
       if (scenario === "unauthorized") return jsonResponse({ message: testToken }, 401);
       if (path === "/api/v10/users/@me") return jsonResponse({ id: authorId });
       if (path === `/api/v10/channels/${channelId}`) return jsonResponse({ id: channelId, type: 1 });
       if (options.method === "DELETE") return jsonResponse(null, 204);
-      return jsonResponse(new URL(url).searchParams.has("before") ? [] : messages);
+      if (new URL(url).searchParams.has("limit")) {
+        const before = new URL(url).searchParams.get("before");
+        return jsonResponse([...messages].sort((a, b) => BigInt(a.id) > BigInt(b.id) ? -1 : 1)
+          .filter(value => !before || BigInt(value.id) < BigInt(before)).slice(0, 100));
+      }
+      const current = currentMessage(path.split("/").at(-1));
+      return current ? jsonResponse(current) : jsonResponse({ code: 10008 }, 404);
     }
   };
   for (const [key, value] of Object.entries(globals)) {
@@ -223,10 +229,18 @@ test("failed credential storage leaves the token in memory and makes no API requ
 });
 
 test("filters start off, ignore stored enable flags, and reveal only relevant enabled fields", async context => {
-  const panel = await createPanel(context, { wiperPreferences: { dateEnabled: true, wordEnabled: true, wordQuery: "private phrase" } });
+  const panel = await createPanel(context, { wiperPreferences: { dateEnabled: true, wordEnabled: true, wordQuery: "private phrase",
+    keepPinned: true, attachmentEnabled: true, wholeWords: true } });
   const elements = panel.elements;
   assert.equal(elements.dateFilterInput.checked, false);
   assert.equal(elements.wordFilterInput.checked, false);
+  assert.equal(elements.keepPinnedInput.checked, false);
+  assert.equal(elements.attachmentFilterInput.checked, false);
+  assert.equal(elements.wholeWordsInput.checked, false);
+  assert.equal(elements.attachmentFilterFields.hidden, true);
+  assert.equal(elements.wordMatchInput.disabled, true);
+  assert.equal(elements.wholeWordsInput.disabled, true);
+  assert.equal(elements.attachmentTypeInput.disabled, true);
   assert.equal(elements.dateFilterFields.hidden, true);
   assert.equal(elements.wordFilterFields.hidden, true);
   assert.equal(elements.dateFromInput.disabled, true);
@@ -272,7 +286,7 @@ test("panel applies both filters, locks the selection, and confirms only matchin
   await panel.until(() => elements.statusBadge.dataset.state === "ready" && !elements.startButton.disabled);
   await preview;
   assert.equal(elements.matchedCount.textContent, "1");
-  assert.equal(elements.filteredDetail.textContent, "2 own messages excluded by filters.");
+  assert.equal(elements.filteredDetail.textContent, "1 own message excluded by filters.");
   for (const id of ["dateFilterInput", "dateModeInput", "dateFromInput", "dateToInput", "wordFilterInput", "wordModeInput", "wordQueryInput"]) assert.equal(elements[id].disabled, true);
   assert.ok(!JSON.stringify(panel.values).includes("private phrase"));
   assert.ok(!elements.logList.textContent.includes("PRIVATE PHRASE"));
@@ -299,7 +313,7 @@ test("invalid filter inputs make no API calls or credential writes", async conte
   elements.wordFilterInput.checked = true;
   elements.wordQueryInput.value = "  ";
   await elements.configForm.emit("submit");
-  assert.match(elements.formError.textContent, /word or phrase/);
+  assert.match(elements.formError.textContent, /word.*phrase/);
   assert.equal("wiperSavedToken" in panel.values, false);
   assert.deepEqual(panel.requests, []);
   elements.tokenInput.value = testToken;
@@ -329,4 +343,86 @@ test("Excluding with no matching candidates cannot open deletion confirmation", 
   await elements.startButton.emit("click");
   assert.equal(elements.confirmDialog.open, false);
   assert.equal(panel.requests.some(request => request.method === "DELETE"), false);
+});
+
+test("panel combines whole-word rules, attachments, and pin protection with a frozen confirmation", async context => {
+  const image = { filename: "private-image.png" };
+  const messages = [
+    { ...message(5), content: "cat under blue sky", attachments: [image], pinned: true },
+    { ...message(4), content: "cat under blue sky", attachments: [image] },
+    { ...message(3), content: "cats under blue sky", attachments: [image] },
+    { ...message(2), content: "cat under blue sky" },
+    { ...message(1), content: "cat under blue sky", attachments: [image] }
+  ];
+  const panel = await createPanel(context, {}, "normal", messages, id => ({ ...messages.find(value => value.id === id), pinned: id === message(4).id }));
+  const elements = panel.elements;
+  elements.tokenInput.value = testToken;
+  elements.riskInput.checked = true;
+  elements.wordFilterInput.checked = true;
+  elements.wordMatchInput.value = "all";
+  elements.wordQueryInput.value = "cat\nblue sky";
+  elements.wholeWordsInput.checked = true;
+  elements.keepPinnedInput.checked = true;
+  elements.attachmentFilterInput.checked = true;
+  elements.attachmentTypeInput.value = "image";
+  await elements.attachmentFilterInput.emit("change");
+  assert.equal(elements.attachmentFilterFields.hidden, false);
+  assert.equal(elements.filterModeLabel.textContent, "3 active");
+  const preview = elements.configForm.emit("submit");
+  await panel.until(() => elements.statusBadge.dataset.state === "ready" && !elements.startButton.disabled);
+  await preview;
+  assert.equal(elements.matchedCount.textContent, "2");
+  assert.equal(elements.filteredDetail.textContent, "3 own messages excluded by filters.");
+  assert.equal(elements.remainingValue.textContent, "After Start");
+  for (const id of ["wordMatchInput", "wholeWordsInput", "keepPinnedInput", "attachmentFilterInput", "attachmentModeInput", "attachmentTypeInput"]) assert.equal(elements[id].disabled, true);
+  await elements.startButton.emit("click");
+  assert.match(elements.confirmFilters.textContent, /match all of 2 terms, whole words/);
+  assert.match(elements.confirmFilters.textContent, /"cat", "blue sky"/);
+  assert.match(elements.confirmFilters.textContent, /Keep pinned/);
+  assert.match(elements.confirmFilters.textContent, /containing image files/);
+  assert.match(elements.confirmDescription.textContent, /newly pinned messages are kept/);
+  elements.confirmationInput.value = channelId;
+  elements.permanentInput.checked = true;
+  const deleting = elements.confirmForm.emit("submit");
+  await panel.until(() => elements.statusBadge.dataset.state === "complete" && !elements.previewButton.disabled);
+  await deleting;
+  assert.equal(elements.deletedCount.textContent, "1");
+  assert.match(elements.statusDetail.textContent, /1 kept after pin checks/);
+  assert.equal(elements.progressBar.value, 2);
+  assert.equal(elements.remainingValue.textContent, "Complete");
+  assert.deepEqual(panel.requests.filter(request => request.method === "DELETE").map(request => request.path.split("/").at(-1)), [message(1).id]);
+  assert.ok(!JSON.stringify(panel.values).includes("blue sky"));
+  assert.ok(!JSON.stringify(panel.values).includes("attachmentEnabled"));
+  assert.ok(!elements.logList.textContent.includes("private-image"));
+});
+
+test("elapsed time updates during preview confirmation and pauses, then freezes on Stop", async context => {
+  const panel = await createPanel(context);
+  const elements = panel.elements;
+  assert.equal(elements.timingStats.hidden, true);
+  elements.tokenInput.value = testToken;
+  elements.riskInput.checked = true;
+  const preview = elements.configForm.emit("submit");
+  await panel.until(() => elements.statusBadge.dataset.state === "waiting");
+  await elements.pauseButton.emit("click");
+  const pausedCount = panel.requests.length;
+  const beforePause = elements.elapsedValue.textContent;
+  context.mock.timers.tick(10000);
+  await nextTurn();
+  assert.notEqual(elements.elapsedValue.textContent, beforePause);
+  assert.equal(elements.timingStats.hidden, false);
+  assert.equal(elements.remainingValue.textContent, "After Start");
+  assert.equal(elements.speedValue.textContent, "—");
+  assert.equal(panel.requests.length, pausedCount);
+  await elements.pauseButton.emit("click");
+  await panel.until(() => elements.statusBadge.dataset.state === "ready" && !elements.startButton.disabled);
+  await preview;
+  const beforeConfirm = elements.elapsedValue.textContent;
+  context.mock.timers.tick(5000);
+  assert.notEqual(elements.elapsedValue.textContent, beforeConfirm);
+  await elements.stopButton.emit("click");
+  const stopped = elements.elapsedValue.textContent;
+  context.mock.timers.tick(60000);
+  assert.equal(elements.elapsedValue.textContent, stopped);
+  assert.equal(elements.remainingValue.textContent, "Stopped");
 });

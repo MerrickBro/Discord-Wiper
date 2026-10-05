@@ -20,7 +20,7 @@ Firefox and the Discord desktop application are not supported by this package. T
 
 1. Enter your own authorization token. It is masked by default. Optionally check **Remember token on this device** to restore it on later visits. This stores it in this browser's extension-local storage without encryption by the extension; use a trusted device. Saving never starts a scan or deletion automatically. This extension does not extract Discord's token, inspect its internal application modules, or collect your login details. Never share a real token in issues, chats, or screenshots.
 2. Enter the channel or DM ID, or choose **Current** while that conversation is open. To copy IDs manually, enable Discord's **Developer Mode**, then use the conversation's **Copy Channel ID** command. The final numeric component of a Discord conversation URL is also its channel ID.
-3. Optionally expand **Filters** and enable a date filter, a word filter, or both. Both start off on a new panel or reload; filter values are not saved. See the matching rules below.
+3. Optionally expand **Filters** to enable dates, multiple words, **Keep pinned messages**, or attachments. All start off on a new panel or reload; filter values are not saved. See the matching rules below.
 4. Choose **Balanced** (**1,000–2,000 ms**) or **Faster** (**500–750 ms**), or enter custom delays from **250–60,000 ms**. Equal values give a fixed delay. Existing delay preferences are preserved. Discord cooldowns always take precedence; a `429` also temporarily increases request pacing. Actual throughput depends on API response times and Discord's limits.
 5. Read and acknowledge the account/deletion warning, then choose **Preview**. This verifies the token's author ID using `/users/@me`, verifies the selected channel, and scans accessible history without deleting anything.
 6. Review the eligible count, account ID, active filter summary, and number of own messages excluded by filters. Choose **Start**, review the frozen filter settings, type the exact channel ID, and explicitly confirm permanent deletion.
@@ -30,7 +30,7 @@ Hiding the panel or switching away from its tab pauses active work. Reopening it
 
 Unchecking **Remember token** removes the saved copy while leaving the current input available in memory. A replacement token is saved when you check Remember or create a new preview. Other open panels may still hold a previously entered token in memory; close them or use Stop/Forget there to end their sessions.
 
-The preview is a frozen list of eligible message IDs. Messages posted after the preview are excluded; create a fresh preview to include them. Filter matches are evaluated during preview; edits to message text afterward do not change the frozen list. A preview with no eligible messages clears its active client token. Large histories take time because the extension reads all accessible channel messages in pages of 100, including messages from other authors. A page without filter matches does not end the scan.
+The preview is a frozen list of eligible message IDs. Messages posted after the preview are excluded; create a fresh preview to include them. Word and attachment matches are evaluated during preview; later edits do not change the frozen list. With **Keep pinned messages**, pin status is also checked before each deletion. A preview with no eligible messages clears its active client token. History is read in pages of up to 100, including messages from other authors. A page without filter matches does not end the scan.
 
 ## Optional filters
 
@@ -40,14 +40,29 @@ The preview is a frozen list of eligible message IDs. Messages posted after the 
 | Date: **After** | Created after the selected day finishes; that day is excluded |
 | Date: **During** | Created on any day in the From/Through range, including both selected days |
 | Date: **Except** | Created outside that inclusive date range; messages inside it are protected |
-| Words: **Containing** | Message text includes the entered word or phrase |
-| Words: **Excluding** | Message text does not include the entered word or phrase |
+| Words: **Containing** | Text matches the selected Match any / Match all rule |
+| Words: **Excluding** | Text does not match that rule; matching messages are protected |
+| **Keep pinned messages** | Unpinned during preview and still unpinned when checked before deletion |
+| Attachments: **Containing** | Has at least one attachment of the selected type |
+| Attachments: **Excluding** | Has no attachment of that type; messages with it are protected |
 
 Dates use the message ID's immutable creation timestamp and the device's local timezone at preview time. The timezone appears in the preview and confirmation. Date ranges include complete calendar days, including daylight-saving changes; choose the same From and Through date for a single day. Empty, invalid, and reversed enabled ranges are rejected before any API request.
 
-Words use case-insensitive literal substring matching, so `cat` also matches `cats`. Leading/trailing whitespace is trimmed; embedded spaces and punctuation are literal. There are no regular expressions, comma-separated lists, or attachment/embed searches. Empty message text (such as an attachment-only message) passes Excluding, but not Containing. Missing or malformed text stops an enabled word-filter scan rather than offering a partial preview. Enter one word or phrase of up to 256 characters.
+Date previews use exact message-ID boundaries to skip unrelated history. Before/During jump to the upper boundary; After/During stop at the lower boundary. Except scans the newer window, then jumps past the excluded range into the older window. Boundary pages can contain some out-of-range messages, which are still checked and excluded. Scanned and excluded counts cover messages actually fetched, not history skipped by date bounds. Other filters still require reading the selected history; the account, channel, and owner checks remain in place.
 
-When both filters are enabled, a message must match **both**, as well as the existing verified-owner/type checks. Filter controls lock during scanning, while a preview awaits confirmation, and during deletion. Use Stop and create a new preview to change them. Hiding/reopening the existing panel preserves its current filter values; a new panel or page reload resets them to off. Dates and the word/phrase stay only in this panel's memory; they are not synced, logged, or stored in extension preferences.
+Enter up to **32 words or phrases**, one per line, with up to **256 characters per term**. Blank lines are ignored and case-equivalent duplicates are combined. **Match any** requires at least one term; **Match all** requires every term. Excluding negates the whole rule: Excluding + Match all protects messages containing all the listed terms, while messages containing only some remain eligible. Commas, spaces, and punctuation inside a line are literal; there are no regular expressions or searches of attachment names/embeds.
+
+Words are case-insensitive substrings by default, so `cat` matches `cats`. **Whole words only** requires word boundaries around each term or phrase, so `cat` no longer matches `cats` or `bobcat`. Unicode letters, combining marks, numbers, and underscores count as word characters. Empty message text passes Excluding, but not Containing. Missing or malformed text stops an enabled word-filter scan without offering a partial preview.
+
+Attachment types are **Any attachment**, **Images / GIFs**, **Videos**, **Audio / voice**, and **Other files**. Classification uses media MIME types first, then known filename extensions; other attachments count as files. Linked previews and embeds do not count, and files are never downloaded. A mixed message with an image and a document is protected by Excluding images. Missing or malformed attachment metadata stops an enabled attachment-filter scan without offering a partial preview.
+
+**Keep pinned messages** excludes pins during preview and adds one paced GET for each selected message before its DELETE. Newly pinned messages are counted as kept; messages already absent are counted separately without DELETE. An unreadable pin status or changed ownership/channel stops execution. These extra requests can slow deletion. A pin can still change between the check and DELETE because those requests are separate.
+
+Every enabled filter must match, along with the verified-owner/type checks. Controls lock during scanning, preview confirmation, and deletion. Use Stop and create a new preview to change them. Hiding/reopening the same panel preserves its values; a new panel or reload resets filters to off. Filter inputs remain in panel memory and are not synced, logged, or saved in preferences.
+
+## Session timing
+
+**Elapsed** shows wall time since Preview, including pauses and confirmation time. **Processed / min** measures deletion progress, including already-absent messages and late pins kept; pauses are excluded and cooldowns are included. **Remaining** appears after at least three processed messages and estimates active deletion time using observed progress and any current cooldown. It changes as response times and rate limits change. Preview history has no known total, so its remaining time is not estimated. Timing freezes when the session ends and resets on a new preview.
 
 ## Privacy and permissions
 
@@ -84,9 +99,9 @@ npm run check
 npm run package
 ```
 
-The package command creates `dist/merrick-discord-wiper-0.3.0.zip`. The ZIP contains the ready-to-load extension, this README, and the architecture/privacy notes. It excludes tests, development artifacts, and any session state.
+The package command creates `dist/merrick-discord-wiper-0.4.0.zip`. The ZIP contains the ready-to-load extension, this README, and the architecture/privacy notes. It excludes tests, development artifacts, and any session state.
 
-`npm test` runs mocked API tests for pagination, author/date/word filtering, whole-day and daylight-saving boundaries, frozen filter options, confirmation, rate-limit responses, adaptive pacing, global waits, error handling, stop/pause behavior, token storage, settings sanitization, and session exclusion. Panel-flow tests run the real panel module with mocked DOM/storage/clock/API surfaces; they cover startup restoration, explicit opt-in, completed deletion, Stop, Forget, rejection cleanup, opt-out, default-off filters, locked controls, filter confirmation, and validation without requests. No real Discord account or messages are used. `npm run check` validates JavaScript syntax, local imports/resources, permissions, and the release file set.
+`npm test` uses fictional tokens and mocked API responses. Coverage includes pagination/ownership, date-window equivalence and request savings, midnight/daylight-saving boundaries, multiple-word and whole-word rules, attachment metadata, late pin checks, timing/cooldowns, confirmation, stop/pause, rate limits, token storage, settings sanitization, and session exclusion. Panel-flow tests run the real panel module with mocked DOM/storage/clock/API surfaces to verify combined filters, locked confirmation, default-off controls, timing, and saved-token behavior. No real Discord account or messages are used. `npm run check` validates syntax, local imports/resources, permissions, and the release file set.
 
 An optional Chromium smoke test is available with Playwright installed and its Chromium browser downloaded:
 

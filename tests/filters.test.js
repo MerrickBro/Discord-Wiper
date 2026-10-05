@@ -13,7 +13,7 @@ test("date and word filters are off by default and ignore unused field values", 
   assert.equal(filters.dateEnabled, false);
   assert.equal(filters.wordEnabled, false);
   assert.equal(matchesFilters({}, filters), true);
-  assert.equal(describeFilters(filters), "Date and word filters off.");
+  assert.equal(describeFilters(filters), "Filters off.");
   assert.ok(Object.isFrozen(filters));
 });
 
@@ -120,7 +120,7 @@ test("invalid filters stop before account, channel, or message API requests", ()
 
 test("filtered pages never truncate the scan and only matching own messages are deleted", async () => {
   const compiled = compileFilters({ ...dateOptions, ...wordOptions });
-  const firstPage = Array.from({ length: 100 }, (_, index) => datedMessage(compiled.endTime + 1000 - index, "secret phrase"));
+  const firstPage = Array.from({ length: 100 }, (_, index) => datedMessage(compiled.endTime - 1000 - index, "ordinary text"));
   const matching = datedMessage(compiled.startTime + 5000, "SECRET PHRASE");
   const secondPage = [datedMessage(compiled.startTime + 6000, "secret phrase", otherId), matching,
     { ...datedMessage(compiled.startTime + 4000, "secret phrase"), webhook_id: otherId },

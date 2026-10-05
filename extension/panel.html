@@ -42,7 +42,7 @@
       </div>
       <details class="filterSection" id="filterSection">
         <summary>Filters <span id="filterModeLabel" class="fieldTag">Off</span></summary>
-        <p class="hint filterHint">Optional · off on a new panel or reload. If both are enabled, both must match.</p>
+        <p class="hint filterHint">Optional · off on a new panel or reload. All enabled filters must match.</p>
         <label class="checkLine filterToggle"><input id="dateFilterInput" type="checkbox" aria-controls="dateFilterFields">Date filter</label>
         <div id="dateFilterFields" hidden>
           <div class="field"><label for="dateModeInput">Match dates</label><select id="dateModeInput" disabled><option value="before">Before</option><option value="after">After</option><option value="during">During</option><option value="except">Except</option></select></div>
@@ -50,13 +50,27 @@
             <div class="field"><label for="dateFromInput" id="dateFromLabel">Date</label><input id="dateFromInput" type="date" min="0001-01-01" max="9999-12-31" aria-describedby="dateFilterHint" disabled></div>
             <div class="field" id="dateEndField" hidden><label for="dateToInput">Through (inclusive)</label><input id="dateToInput" type="date" min="0001-01-01" max="9999-12-31" aria-describedby="dateFilterHint" disabled></div>
           </div>
-          <p class="hint filterHint" id="dateFilterHint">Before and After exclude the selected day. During and Except use an inclusive range of whole days in your device's timezone.</p>
+          <p class="hint filterHint" id="dateFilterHint">Before and After exclude the selected day. Ranges include whole days in your device's timezone. Preview skips unrelated dates.</p>
         </div>
         <label class="checkLine filterToggle"><input id="wordFilterInput" type="checkbox" aria-controls="wordFilterFields">Word filter</label>
         <div id="wordFilterFields" hidden>
-          <div class="field"><label for="wordModeInput">Match text</label><select id="wordModeInput" disabled><option value="containing">Containing</option><option value="excluding">Excluding</option></select></div>
-          <div class="field"><label for="wordQueryInput">Word or phrase</label><input id="wordQueryInput" type="text" maxlength="256" placeholder="Enter literal text" spellcheck="false" aria-describedby="wordFilterHint" disabled></div>
-          <p class="hint filterHint" id="wordFilterHint">Case-insensitive substring match in message text, not attachment names or embeds. No regular expressions. Matching is frozen at preview time.</p>
+          <div class="filterGrid">
+            <div class="field"><label for="wordModeInput">Match text</label><select id="wordModeInput" disabled><option value="containing">Containing</option><option value="excluding">Excluding</option></select></div>
+            <div class="field"><label for="wordMatchInput">Match terms</label><select id="wordMatchInput" disabled><option value="any">Match any</option><option value="all">Match all</option></select></div>
+          </div>
+          <div class="field"><label for="wordQueryInput">Words or phrases <span>One per line</span></label><textarea id="wordQueryInput" rows="3" maxlength="8256" placeholder="One word or phrase per line" spellcheck="false" aria-describedby="wordFilterHint" disabled></textarea></div>
+          <label class="checkLine filterToggle"><input id="wholeWordsInput" type="checkbox" disabled>Whole words only</label>
+          <p class="hint filterHint" id="wordFilterHint">Case-insensitive literal text. Excluding protects messages matching any/all listed terms. Up to 32 terms, 256 characters each. Matches are frozen at preview time.</p>
+        </div>
+        <label class="checkLine filterToggle"><input id="keepPinnedInput" type="checkbox" aria-describedby="pinFilterHint">Keep pinned messages</label>
+        <p class="hint filterHint" id="pinFilterHint">Also rechecks pins before deletion. Adds a request for each selected message.</p>
+        <label class="checkLine filterToggle"><input id="attachmentFilterInput" type="checkbox" aria-controls="attachmentFilterFields">Attachment filter</label>
+        <div id="attachmentFilterFields" hidden>
+          <div class="filterGrid">
+            <div class="field"><label for="attachmentModeInput">Match attachments</label><select id="attachmentModeInput" disabled><option value="containing">Containing</option><option value="excluding">Excluding</option></select></div>
+            <div class="field"><label for="attachmentTypeInput">File type</label><select id="attachmentTypeInput" disabled><option value="any">Any attachment</option><option value="image">Images / GIFs</option><option value="video">Videos</option><option value="audio">Audio / voice</option><option value="file">Other files</option></select></div>
+          </div>
+          <p class="hint filterHint">Excluding protects messages with the selected attachment type. Uses file metadata; linked previews and embeds are not attachments.</p>
         </div>
       </details>
       <div class="field"><label for="speedPresetInput">Pace</label><select id="speedPresetInput"><option value="balanced">Balanced · 1,000–2,000 ms</option><option value="faster">Faster · 500–750 ms</option><option value="custom">Custom</option></select></div>
@@ -79,6 +93,7 @@
       <div class="statusHeading"><h2 id="statusTitle">Session</h2><span id="statusBadge" class="statusBadge" data-state="idle"><span class="statusDot"></span><span id="statusText" role="status">Ready</span></span></div>
       <p id="statusDetail" class="statusDetail">Preview first. Nothing deletes automatically.</p>
       <div class="stats"><div><span>Scanned</span><strong id="scannedCount">0</strong></div><div><span>Eligible</span><strong id="matchedCount">0</strong></div><div><span>Deleted</span><strong id="deletedCount">0</strong></div></div>
+      <dl id="timingStats" class="timingStats" hidden><div><dt>Elapsed</dt><dd id="elapsedValue" role="timer" title="Wall time since Preview, including pauses and confirmation time">0s</dd></div><div><dt>Processed / min</dt><dd id="speedValue" title="Completed messages per minute during deletion; pauses excluded, cooldowns included">—</dd></div><div><dt>Remaining</dt><dd id="remainingValue" title="Approximate deletion time after at least 3 processed messages; adjusts for cooldowns">After Start</dd></div></dl>
       <progress id="progressBar" max="1" value="0" aria-label="Deletion progress" hidden></progress>
       <p id="accountDetail" class="accountDetail" hidden></p>
       <p id="filterDetail" class="hint" hidden></p>
@@ -89,7 +104,7 @@
       <ol id="logList" role="log" aria-label="Activity log" aria-live="off"></ol>
     </section>
   </main>
-  <footer><span>Only your messages · No telemetry</span><span class="version">v0.3.0</span></footer>
+  <footer><span>Only your messages · No telemetry</span><span class="version">v0.4.0</span></footer>
   <dialog id="confirmDialog" aria-labelledby="confirmTitle" aria-describedby="confirmDescription">
     <form id="confirmForm" autocomplete="off">
       <span class="eyebrow dangerText">Permanent deletion</span>

@@ -33,7 +33,7 @@
 * { box-sizing: border-box; }
 html, body { margin: 0; width: 100%; height: 100%; }
 body { display: flex; flex-direction: column; background: var(--page); color: var(--text); font-size: 12px; }
-button, input { font: inherit; }
+button, input, textarea { font: inherit; }
 button { cursor: pointer; }
 button:disabled { cursor: default; opacity: .42; }
 button:not(:disabled):hover { filter: brightness(1.12); }
@@ -55,9 +55,10 @@ main { flex: 1; min-height: 0; overflow-y: auto; padding: 14px 16px; scrollbar-w
 .field label { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px; font: 10px var(--mono); }
 .field label span { color: var(--muted); }
 .fieldTag { font-size: 8px; text-transform: uppercase; letter-spacing: .04em; }
-input:not([type="checkbox"]), select { display: block; width: 100%; min-width: 0; height: 37px; border: 1px solid var(--lineStrong); border-radius: 2px; background: var(--surface); color: var(--text); padding: 0 10px; font: 11px var(--mono); outline: 0; }
-input:not([type="checkbox"]):focus, select:focus { border-color: var(--accent); box-shadow: inset 2px 0 var(--accent); }
-input:not([type="checkbox"]):disabled, select:disabled { color: var(--muted); background: var(--soft); opacity: .9; }
+input:not([type="checkbox"]), select, textarea { display: block; width: 100%; min-width: 0; height: 37px; border: 1px solid var(--lineStrong); border-radius: 2px; background: var(--surface); color: var(--text); padding: 0 10px; font: 11px var(--mono); outline: 0; }
+input:not([type="checkbox"]):focus, select:focus, textarea:focus { border-color: var(--accent); box-shadow: inset 2px 0 var(--accent); }
+input:not([type="checkbox"]):disabled, select:disabled, textarea:disabled { color: var(--muted); background: var(--soft); opacity: .9; }
+textarea { height: 76px; padding-block: 8px; line-height: 1.5; resize: vertical; }
 .inputGroup { display: flex; border: 1px solid var(--lineStrong); border-radius: 2px; background: var(--surface); }
 .inputGroup:focus-within { border-color: var(--accent); }
 .inputGroup input { border: 0; border-radius: 0; height: 36px; }
@@ -73,9 +74,14 @@ input:not([type="checkbox"]):disabled, select:disabled { color: var(--muted); ba
 .filterSection summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 .filterToggle { margin: 10px 0; color: var(--text); }
 .filterHint { margin-bottom: 10px; }
+.filterGrid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
 .dateGrid:has(#dateEndField:not([hidden])) { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
 .dateGrid input { padding-inline: 6px; font-size: 10px; }
 #filterDetail, #confirmFilters { overflow-wrap: anywhere; }
+.timingStats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); margin: 9px 0 0; gap: 8px; }
+.timingStats > div { min-width: 0; }
+.timingStats dt { color: var(--muted); font: 8px var(--mono); text-transform: uppercase; }
+.timingStats dd { margin: 5px 0 0; font: 11px var(--mono); overflow-wrap: anywhere; }
 .checkLine { display: flex; align-items: flex-start; gap: 8px; color: var(--muted); font-size: 11px; line-height: 1.45; }
 input[type="checkbox"] { flex: none; margin: 1px 0 0; width: 13px; height: 13px; accent-color: #b0e0ff; }
 .rememberLine { margin: -1px 0 12px; font-size: 10px; }

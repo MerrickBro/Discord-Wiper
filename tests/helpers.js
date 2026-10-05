@@ -12,7 +12,8 @@ export function jsonResponse(body, status = 200, headers = {}) {
 }
 
 export function message(offset, author = authorId, type = 0) {
-  return { id: String(1450000000000000000n + BigInt(offset)), channel_id: channelId, author: { id: author }, type, content: "This content must not be retained." };
+  return { id: String(1450000000000000000n + BigInt(offset)), channel_id: channelId, author: { id: author }, type,
+    content: "This content must not be retained.", pinned: false, attachments: [] };
 }
 
 export function datedMessage(timestamp, content = "", author = authorId, type = 0) {
@@ -45,10 +46,26 @@ export function createHarness(handler, extra = {}) {
     onChange: state => changes.push(state),
     controlFactory: () => control,
     clientFactory: engineOptions => new DiscordClient({ ...options, ...engineOptions }),
+    clock: () => now,
     ...(extra.maxCandidates ? { maxCandidates: extra.maxCandidates } : {})
   });
-  return { requests, sleeps, logs, changes, control, client, wiper,
+  return { requests, sleeps, logs, changes, control, client, wiper, advanceTime: duration => { now += duration; },
     config: { token: testToken, channelId, minDelay: options.minDelay, maxDelay: options.maxDelay } };
+}
+
+export function historyHandler(messages, deletionResponse = () => jsonResponse(null, 204), currentMessage = messageId => messages.find(value => value.id === messageId)) {
+  const sorted = [...messages].sort((first, second) => BigInt(first.id) > BigInt(second.id) ? -1 : 1);
+  return request => {
+    if (request.url.pathname === "/api/v10/users/@me") return jsonResponse({ id: authorId });
+    if (request.url.pathname === `/api/v10/channels/${channelId}`) return jsonResponse({ id: channelId, type: 1 });
+    if (request.method === "DELETE") return deletionResponse(request);
+    if (request.url.searchParams.has("limit")) {
+      const before = request.url.searchParams.get("before");
+      return jsonResponse(sorted.filter(value => !before || BigInt(value.id) < BigInt(before)).slice(0, 100));
+    }
+    const current = currentMessage(request.url.pathname.split("/").at(-1));
+    return current ? jsonResponse(current) : jsonResponse({ code: 10008 }, 404);
+  };
 }
 
 export function standardHandler(pages, deletionResponse = () => jsonResponse(null, 204)) {

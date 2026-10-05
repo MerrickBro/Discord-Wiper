@@ -71,10 +71,17 @@ export class DiscordClient {
   }
 
   getMessages(channelId, before = "") {
-    if (before && !isSnowflake(before)) throw new WiperError("Invalid pagination cursor. Stopped.");
+    if (before && (typeof before !== "string" || !/^(?:0|[1-9]\d{0,19})$/.test(before) || BigInt(before) > 18446744073709551615n)) {
+      throw new WiperError("Invalid pagination cursor. Stopped.");
+    }
     const query = new URLSearchParams({ limit: "100" });
     if (before) query.set("before", before);
     return this.#request("GET", `/channels/${validateChannelId(channelId)}/messages?${query}`);
+  }
+
+  getMessage(channelId, messageId) {
+    if (!isSnowflake(messageId)) throw new WiperError("Invalid message ID. Stopped.");
+    return this.#request("GET", `/channels/${validateChannelId(channelId)}/messages/${messageId}`, true);
   }
 
   deleteMessage(channelId, messageId) {
@@ -137,7 +144,7 @@ export class DiscordClient {
     }
   }
 
-  async #request(method, path) {
+  async #request(method, path, allowMissingMessage = false) {
     if (this.#busy) throw new WiperError("Concurrent requests are disabled.");
     this.#busy = true;
     let rateRetries = 0;
@@ -182,9 +189,9 @@ export class DiscordClient {
         }
         if (response.status === 401) throw new WiperError("Discord rejected the token (401). The session stopped; no further requests will be made.", "invalidToken");
         if (response.status === 403) throw new WiperError("Discord denied access (403). Stopped; check channel access and account restrictions.");
-        if (response.status === 404 && method === "DELETE" && body?.code === 10008) {
+        if (response.status === 404 && (method === "DELETE" || allowMissingMessage) && body?.code === 10008) {
           this.#recordSuccess(now, pacingDelay);
-          return { alreadyGone: true };
+          return allowMissingMessage ? null : { alreadyGone: true };
         }
         if (response.status >= 500 && response.status <= 599) {
           if (++transientRetries > 3) throw new WiperError("Discord returned repeated server errors. Stopped after three retries.");

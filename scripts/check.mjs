@@ -55,10 +55,12 @@ assert.ok(html.includes('id="confirmationInput"'));
 assert.ok(html.includes('id="rememberTokenInput"'));
 assert.ok(html.includes('id="forgetTokenButton"'));
 assert.ok(html.includes('id="speedPresetInput"'));
-for (const id of ["dateFilterInput", "dateModeInput", "dateFromInput", "dateToInput", "wordFilterInput", "wordModeInput", "wordQueryInput", "confirmFilters"]) {
+for (const id of ["dateFilterInput", "dateModeInput", "dateFromInput", "dateToInput", "wordFilterInput", "wordModeInput", "wordQueryInput",
+  "wordMatchInput", "wholeWordsInput", "keepPinnedInput", "attachmentFilterInput", "attachmentModeInput", "attachmentTypeInput",
+  "timingStats", "elapsedValue", "speedValue", "remainingValue", "confirmFilters"]) {
   assert.ok(html.includes(`id="${id}"`), `Missing filter UI: ${id}`);
 }
-for (const id of ["dateFilterInput", "wordFilterInput"]) {
+for (const id of ["dateFilterInput", "wordFilterInput", "wholeWordsInput", "keepPinnedInput", "attachmentFilterInput"]) {
   const input = new RegExp(`<input\\b[^>]*id="${id}"[^>]*>`).exec(html)?.[0];
   assert.ok(input && !/\bchecked\b/.test(input), `${id} must be off by default`);
 }

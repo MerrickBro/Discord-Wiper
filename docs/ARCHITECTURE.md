@@ -14,7 +14,9 @@
 | `core/preferences.js` | Explicit allowlist for persisted settings | None |
 | `core/tokenStore.js` | Trusted local credential access; queued saves/removal; conditional rejection cleanup | Opted-in saved token only |
 | `core/pacing.js` | Balanced/faster presets and allowed delay range | None |
-| `core/filters.js` | Strict optional filter validation; local calendar bounds; immutable snowflake dates; literal text matching | None |
+| `core/filters.js` | Frozen date/word/pin/attachment rules; metadata validation; literal matching | None |
+| `core/dateScan.js` | Exact BigInt date boundaries and nonempty scan windows | None |
+| `core/runMetrics.js` | Injected-clock elapsed time, observed progress, and remaining-time estimates | None |
 
 The iframe shares an extension origin with other instances of this extension, not Discord. Only its bundled scripts execute there. CSP restricts connections to `https://discord.com` and forbids remote/inline scripts, objects, form navigation, and unrelated framing origins. The parent bridge validates both origin and source, plus a per-frame ID, and carries only channel IDs and visibility messages. There is no network proxy or deletion command exposed to Discord's page.
 
@@ -62,7 +64,9 @@ const previewTask = wiper.preview({
   maxDelay: 2000,
   filters: {
     dateEnabled: true, dateMode: "during", dateFrom: "2026-10-01", dateTo: "2026-10-04",
-    wordEnabled: true, wordMode: "excluding", wordQuery: "keep this"
+    wordEnabled: true, wordMode: "excluding", wordQuery: "keep this\nimportant",
+    wordMatch: "any", wholeWords: true, keepPinned: true,
+    attachmentEnabled: true, attachmentMode: "excluding", attachmentType: "image"
   }
 });
 tokenInput.value = "";
@@ -72,7 +76,7 @@ await previewTask;
 await wiper.deletePreview({ channelId: confirmedChannelId, acceptRisk: true });
 ```
 
-`preview()` and `deletePreview()` return a Promise of a sanitized state snapshot, and reject on failure/abort. `state` returns a copy of counts, verified IDs, phase, pause state, wait/error details, a filters-active flag, and a filter summary without the search phrase. `filtered` counts otherwise-eligible own messages excluded by filters; `skipped` remains the unsupported-own-type count. State never returns tokens, message content, the search phrase, or candidate IDs. `pause()` / `resume()` are synchronous; `stop()` resolves after active work settles. Only a full successful preview is eligible for deletion.
+`preview()` and `deletePreview()` return a Promise of sanitized state and reject on failure/abort. `state` returns counts, verified IDs, phase, pause/wait/error details, filter summary, `dateOptimized`, and timing metrics. `filtered` counts otherwise-eligible own messages fetched but excluded by filters; `skipped` counts unsupported own types. `kept` counts candidates pinned when rechecked. State never returns tokens, message content, search terms, attachment filenames, or candidate IDs. `pause()` / `resume()` are synchronous; `stop()` resolves after active work settles. Only a full successful preview is eligible for deletion.
 
 The panel separately enforces the risk acknowledgement and Web Lock. Integrations that reuse the core must supply equivalent UI confirmation, safe credential entry, and session exclusion. Never run deletion on an untrusted page's behalf.
 
@@ -80,23 +84,36 @@ The panel separately enforces the risk acknowledgement and Web Lock. Integration
 
 1. GET `/users/@me` establishes the token's actual author ID. It is never inferred from token contents or supplied as an editable author filter.
 2. GET `/channels/{channelId}` validates the target.
-3. GET `/channels/{channelId}/messages?limit=100` reads the newest page.
-4. Validate each ID, channel, author ID, page uniqueness, and backward progress.
-5. Keep only known-deletable messages from the verified author, excluding webhook messages, then apply the enabled date and word constraints with AND. Retain IDs only.
-6. Repeat with `before={oldestId}`, using BigInt comparison to avoid snowflake precision loss. An empty page ends the scan. Pages with no own messages do not end it.
-7. After confirmation, revalidate `/users/@me` and DELETE each frozen candidate individually.
+3. GET `/channels/{channelId}/messages?limit=100`, with an initial date-derived `before` when needed.
+4. Validate IDs, channel, author ID, page uniqueness, backward progress, and descending order for date optimization.
+5. Keep known-deletable non-webhook messages from the verified author, apply all enabled constraints with AND, and retain IDs only.
+6. Continue with `before={oldestId}` using BigInt. An empty page ends accessible history; a short page or page without matches does not. A date lower boundary ends that window.
+7. Except jumps into the older window after finishing the newer one. If the boundary page already returned older matches, start below its oldest ID to avoid duplicates and omissions.
+8. After confirmation, revalidate `/users/@me`. If pin protection is enabled, GET each candidate, verify its ID/channel/owner/type/pin status, then keep it if pinned or count it absent for code `10008`. Otherwise DELETE each frozen candidate individually, with a pause/stop checkpoint between the pin read and DELETE.
 
 There is a 100,000-candidate memory cap. Exceeding it clears the preview and stops without offering partial deletion. Messages arriving after the preview are not candidates. A deleted cursor still works as a snowflake boundary, and deletion never offsets pagination because all scanning precedes it.
 
 ## Filter contract
 
-Filters are omitted/off by default. `preview()` synchronously validates and copies enabled options into a frozen private object before any API request. `dateEnabled` and `wordEnabled` must be booleans when supplied; invalid modes, missing dates, impossible/reversed date ranges, and empty/oversized phrases are rejected. Disabled fields are ignored. Caller mutations cannot alter an active scan's options.
+Filters are omitted/off by default. `preview()` synchronously validates and copies enabled options into a frozen private object before any API request. `dateEnabled`, `wordEnabled`, `wholeWords`, `keepPinned`, and `attachmentEnabled` must be booleans when supplied. Invalid enabled modes, missing/impossible/reversed dates, empty/oversized terms, and invalid attachment types are rejected. Disabled value fields are ignored. Caller mutations cannot alter active options.
 
 Date modes are `before`, `after`, `during`, and `except`. Before matches timestamps less than the selected day's local start; After matches timestamps at or after the next local day's start. During uses `[fromDayStart, dayAfterThroughStart)`, and Except is its complement. Calendar arithmetic, not a fixed 24-hour duration, handles daylight-saving transitions. Timestamps come from `(BigInt(message.id) >> 22n) + 1420070400000n`, with the 64-bit range checked when dates are used.
 
-Word modes are `containing` and `excluding`. A trimmed phrase of 1–256 characters uses lowercase literal substring matching on `message.content` only. An empty string is valid content; missing/non-string content with an enabled word filter is not, and discards the entire partial preview. Attachment names and embed fields do not participate. No content or phrase is logged, persisted, or returned in state.
+`dateScanRanges()` maps local calendar bounds to exclusive cursor boundaries using `(milliseconds - 1420070400000n) << 22n`, with low bits zero. Bounds clamp to `[0, 2^64]`; empty windows issue no history requests, although account/channel verification still occurs. Before/During start at an upper bound, After/During stop when the oldest fetched ID crosses the lower bound, and Except has two windows in newest-to-oldest order. Every fetched own candidate still passes the exact date predicate. Scanned/filtered counts exclude skipped history.
 
-The panel owns the input values and includes the frozen phrase in explicit deletion confirmation using `textContent`. Inputs lock throughout a session. A new panel or reload starts both filters off; hiding the same panel leaves its current values intact. Filter values are excluded from preferences. Deletion consumes only the original preview IDs: it does not re-read edited message text or expand the selection after confirmation. A fresh preview is required to evaluate subsequent edits.
+Word modes are `containing`/`excluding`, with `wordMatch: "any"` (default) or `"all"`. `wordQuery` contains up to 32 newline-separated trimmed terms of 1–256 characters, within an 8,256-character input limit. Blank lines are removed and lowercase-equivalent terms deduplicated into frozen arrays. Matching uses lowercase literal text on `message.content` only; Excluding negates the aggregate Any/All rule. `wholeWords` optionally checks surrounding Unicode letters/marks/numbers/underscores as word characters. Empty string content is valid; missing/non-string content discards an enabled word-filter preview. Attachment names and embeds do not participate.
+
+`keepPinned` requires boolean preview pin metadata. Protected messages never enter the candidate list. Each retained candidate is read again immediately before deletion; missing messages return null only for `404` code `10008`, newly pinned ones increment `kept`, and unverifiable metadata stops the run. All reads share the existing pacing/cooldown/retry policy. No atomic pin-check-and-delete operation exists; a later change between requests remains possible.
+
+Attachment modes are `containing`/`excluding`; types are `any`, `image`, `video`, `audio`, and `file`. Enabled filtering requires an attachments array and valid filename/optional string `content_type` for every attachment. Recognized media MIME prefixes take precedence over filename extensions; known extensions provide fallback and unrecognized types become other files. Containing requires at least one selected type; Excluding negates that test. Embedded links are excluded and attachment URLs are never fetched. Malformed relevant metadata discards the preview.
+
+The panel owns values and shows frozen terms in confirmation through `textContent`. Controls lock for the session. All filters start off on a new panel/reload; hiding the same panel preserves values. Preferences exclude every filter value. Deletion consumes the original IDs without reevaluating edited words/attachments or expanding the selection. Only pin status is rechecked when protection is enabled.
+
+## Timing contract
+
+`RunMetrics` uses an injected clock. `elapsedMs` is wall time since Preview, including pauses/confirmation, frozen at session end. `activeMs` belongs to the current/last phase, excludes pauses, and includes pacing, cooldowns, and retries. Preview ends its phase when ready; deletion starts a new phase. `messagesPerMinute` uses `deleted + alreadyGone + kept` over active deletion time and is null until progress is observable.
+
+`remainingMs` is null for preview/confirmation and the first two processed candidates. After three, it estimates remaining count times observed average time, with a floor for any known current wait plus the other messages' average time. Complete deletion returns zero; stopped/error returns null. Paused remaining time describes active work after resuming, not the unknown manual pause duration. State reads recalculate metrics so the panel's 250 ms status timer continues through waits, pauses, and confirmation. Timing is never persisted.
 
 ## HTTP policy
 
@@ -110,7 +127,7 @@ The panel owns the input values and includes the frozen phrase in explicit delet
 | Global `429` | Same barrier for the entire session |
 | `401` / `403` | Stop immediately; clear token and candidates |
 | Verification challenge | Stop; no automatic solving or bypass |
-| DELETE `404`, code `10008` | Count already absent; continue |
+| DELETE or pin-check GET `404`, code `10008` | Count already absent; continue without another DELETE |
 | Other `4xx` | Stop; no retry |
 | Network / timeout / `5xx` | Up to three retries with increasing waits |
 | More than six `429` retries | Stop and require a fresh session |
@@ -124,4 +141,4 @@ Balanced is 1,000–2,000 ms; Faster is 500–750 ms; custom values span 250–6
 
 ## Verification
 
-Automated tests use mocked Discord responses and fictional IDs/tokens. Panel-flow tests execute the actual panel module using small mocked DOM/storage/clock surfaces, covering saved-token lifecycle and date/word filtering through real engine preview/deletion. Filter tests additionally check every boundary mode, daylight-saving changes, literal text matching, and fail-closed validation. They do not verify browser rendering or Chrome extension security boundaries. The separate browser smoke test loads the real Manifest V3 package, supplies an intercepted Discord page/API, and exercises the extension-origin iframe and cross-tab Web Lock. Production user-token compatibility and Discord enforcement are outside what mocked tests can guarantee.
+Automated tests use mocked Discord responses and fictional IDs/tokens. Panel-flow tests execute the actual panel module with mocked DOM/storage/clock surfaces, including combined rules, pin preservation, confirmation, defaults/locking, and timing. Core tests cover Any/All/whole-word semantics, attachment categories and malformed metadata, late pins/ownership/stop/pause, date-window equivalence and request savings, low-bit boundaries, overlap deduplication, daylight-saving changes, and timer/cooldown accounting. They do not verify browser rendering or Chrome security boundaries. The separate browser smoke test loads the Manifest V3 package with intercepted Discord fixtures and covers the extension iframe, responsive layouts, and cross-tab Web Lock. Mocked tests cannot guarantee production user-token compatibility or Discord enforcement.
