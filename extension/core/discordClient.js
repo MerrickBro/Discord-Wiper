@@ -41,6 +41,8 @@ export class DiscordClient {
   #busy = false;
   #disposed = false;
   #requestTimeout;
+  #adaptiveDelay = 0;
+  #successfulRequests = 0;
 
   constructor({ token, minDelay = 1000, maxDelay = 2000, control,
     fetchImpl = globalThis.fetch.bind(globalThis), clock = Date.now, random = Math.random,
@@ -80,6 +82,15 @@ export class DiscordClient {
     return this.#request("DELETE", `/channels/${validateChannelId(channelId)}/messages/${messageId}`);
   }
 
+  #recordSuccess(now, pacingDelay) {
+    if (this.#adaptiveDelay && ++this.#successfulRequests >= 5) {
+      this.#adaptiveDelay = Math.floor(this.#adaptiveDelay / 2);
+      if (this.#adaptiveDelay <= this.#maxDelay) this.#adaptiveDelay = 0;
+      this.#successfulRequests = 0;
+    }
+    this.#nextRequestAt = now + Math.max(pacingDelay, this.#adaptiveDelay);
+  }
+
   async #waitForSlot() {
     for (;;) {
       await this.#control.checkpoint();
@@ -87,7 +98,7 @@ export class DiscordClient {
       const until = Math.max(this.#nextRequestAt, this.#cooldownUntil);
       const remaining = until - this.#clock();
       if (remaining <= 0) break;
-      this.#onWait({ until, reason: this.#cooldownUntil >= this.#nextRequestAt ? "Discord cooldown" : "Request delay" });
+      this.#onWait({ until, reason: this.#cooldownUntil >= this.#nextRequestAt ? "Discord cooldown" : this.#adaptiveDelay ? "Adaptive pacing" : "Request delay" });
       await this.#control.sleep(Math.min(remaining, 60000));
     }
     this.#onWait({ until: 0, reason: "" });
@@ -147,7 +158,7 @@ export class DiscordClient {
         const { response, body } = result;
         const now = this.#clock();
         const pacingDelay = this.#minDelay + Math.floor(this.#random() * (this.#maxDelay - this.#minDelay + 1));
-        this.#nextRequestAt = now + pacingDelay;
+        this.#nextRequestAt = now + Math.max(pacingDelay, this.#adaptiveDelay);
         if (body?.captcha_key || body?.captcha_sitekey) {
           throw new WiperError("Discord requested additional verification. Stopped; complete it in Discord manually.");
         }
@@ -156,18 +167,25 @@ export class DiscordClient {
           this.#cooldownUntil = Math.max(this.#cooldownUntil, now + headerDelay);
         }
         if (response.status === 429) {
+          this.#adaptiveDelay = Math.min(60000, Math.max(this.#minDelay * 2, this.#adaptiveDelay * 2));
+          this.#successfulRequests = 0;
+          this.#nextRequestAt = Math.max(this.#nextRequestAt, now + this.#adaptiveDelay);
           const retryDelay = rateLimitDelay(response.headers, body, now) ?? Math.min(60000, 5000 * 2 ** rateRetries);
           this.#cooldownUntil = Math.max(this.#cooldownUntil, now + retryDelay);
           const globalLimit = body?.global === true || response.headers.get("X-RateLimit-Global") === "true" ||
             response.headers.get("X-RateLimit-Scope") === "global";
           this.#onRateLimit();
           this.#onLog(`${globalLimit ? "Global rate limit" : "Rate limit"}: waiting at least ${(retryDelay / 1000).toFixed(2)} s.`, "warning");
+          this.#onLog(`Pacing increased to at least ${(this.#adaptiveDelay / 1000).toFixed(2)} s; it eases after successful requests.`, "warning");
           if (++rateRetries > 6) throw new WiperError("Discord continued rate-limiting this request. Stopped after six retries.");
           continue;
         }
-        if (response.status === 401) throw new WiperError("Discord rejected the token (401). It has been cleared; no further requests will be made.");
+        if (response.status === 401) throw new WiperError("Discord rejected the token (401). The session stopped; no further requests will be made.", "invalidToken");
         if (response.status === 403) throw new WiperError("Discord denied access (403). Stopped; check channel access and account restrictions.");
-        if (response.status === 404 && method === "DELETE" && body?.code === 10008) return { alreadyGone: true };
+        if (response.status === 404 && method === "DELETE" && body?.code === 10008) {
+          this.#recordSuccess(now, pacingDelay);
+          return { alreadyGone: true };
+        }
         if (response.status >= 500 && response.status <= 599) {
           if (++transientRetries > 3) throw new WiperError("Discord returned repeated server errors. Stopped after three retries.");
           this.#cooldownUntil = Math.max(this.#cooldownUntil, now + 1000 * 2 ** transientRetries, now + (headerDelay ?? 0));
@@ -179,9 +197,11 @@ export class DiscordClient {
         }
         if (method === "DELETE") {
           if (response.status !== 204) throw new WiperError("Unexpected deletion response. Stopped rather than assuming success.");
+          this.#recordSuccess(now, pacingDelay);
           return { alreadyGone: false };
         }
         if (response.status !== 200 || body === null) throw new WiperError("Discord returned an unreadable response. Stopped.");
+        this.#recordSuccess(now, pacingDelay);
         return body;
       }
     } finally {

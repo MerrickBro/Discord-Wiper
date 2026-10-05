@@ -32,7 +32,7 @@ export function createHarness(handler, extra = {}) {
     return handler(request, requests.length);
   };
   const control = new RunControl({ sleepImpl });
-  const options = { token: testToken, minDelay: 1000, maxDelay: 2000, control, fetchImpl, clock: () => now,
+  const options = { token: testToken, minDelay: extra.minDelay ?? 1000, maxDelay: extra.maxDelay ?? 2000, control, fetchImpl, clock: () => now,
     random: () => 0, onLog: (text, level) => logs.push({ text, level }) };
   const client = new DiscordClient(options);
   const wiper = new MessageWiper({
@@ -43,7 +43,7 @@ export function createHarness(handler, extra = {}) {
     ...(extra.maxCandidates ? { maxCandidates: extra.maxCandidates } : {})
   });
   return { requests, sleeps, logs, changes, control, client, wiper,
-    config: { token: testToken, channelId, minDelay: 1000, maxDelay: 2000 } };
+    config: { token: testToken, channelId, minDelay: options.minDelay, maxDelay: options.maxDelay } };
 }
 
 export function standardHandler(pages, deletionResponse = () => jsonResponse(null, 204)) {

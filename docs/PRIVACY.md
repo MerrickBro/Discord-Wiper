@@ -4,17 +4,23 @@ Merrick's Discord Wiper has no backend, analytics, telemetry, advertising, or ex
 
 ## Transient data
 
-- Your authorization token exists in an extension-origin input field briefly, then in a private client field while the preview/deletion session is active. The extension sends it only to Discord's canonical HTTPS API in the Authorization header.
+- By default, your authorization token exists only in an extension-origin input field and a private client field while the preview/deletion session is active. If remembering is enabled, the panel also keeps a private remembered-value reference and restores the masked input between runs. The extension sends tokens only to Discord's canonical HTTPS API in the Authorization header.
 - The verified account ID, selected channel ID, candidate message IDs, counts, and recent activity log remain in session memory.
 - Discord message bodies are received transiently for filtering. Content, attachments, and recipient names are never displayed, logged, exported, or persisted. Only eligible IDs are retained.
 
-Stop, completion, an execution error, or tab reload/destruction clears the active token and preview. Hiding the panel and pausing preserve the session so it can be resumed; use Stop to discard it. A browser/device administrator or debugger can still inspect memory. Garbage collection controls physical memory reclamation, so the extension cannot promise secure zeroization of JavaScript strings.
+Stop, completion, an execution error, or tab reload/destruction clears the active engine token and preview. An opted-in saved token is preserved, except when rejected with `401`. Hiding the panel and pausing preserve the session so it can be resumed; use Stop to discard it. A browser/device administrator or debugger can still inspect memory. Garbage collection controls physical memory reclamation, so the extension cannot promise secure zeroization of JavaScript strings.
 
 ## Persistent settings
 
 Extension-local storage contains only delay preferences, light/dark theme, the remember-channel option, and a channel ID when explicitly opted in. Channel remembering is off by default. Unchecking it clears the saved channel ID. This data is not synced by the extension.
 
-No token, account ID, message ID list, message body, or activity log is written to storage. The extension restricts settings access to trusted extension contexts and does not use Discord's localStorage.
+Token saving is off by default. **Remember token on this device** explicitly saves one token in a separate extension-local entry. The extension does not encrypt this value or sync it to other browsers. Anyone with sufficient browser/device/debugging access may be able to read it. Use this option only on a trusted device.
+
+Storage access is restricted to trusted extension contexts before any credential read or write. The content script does not get storage access. No account ID, message ID list, message body, or activity log is saved, and Discord's localStorage is never used.
+
+Unchecking Remember token deletes the saved entry and keeps the existing input in memory. **Forget** deletes the stored entry, clears this panel's input/private remembered value, and stops this panel's active session. Other already-open panels may retain credentials in memory until their sessions are stopped or their pages are closed. Deleting an entry cannot guarantee physical erasure from device/browser backups.
+
+When Discord rejects an active saved token with `401`, the panel removes the saved entry only if it still contains that rejected token. A newer replacement is preserved. Storage-removal failures are reported and require another Forget attempt.
 
 ## Network
 
@@ -24,6 +30,6 @@ Only bundled JavaScript and styles are used. There is no remote font or CDN depe
 
 ## Removal
 
-Use Stop to clear an active session. Remove the extension through the browser's extension management page to remove its saved preferences.
+Use Stop to clear an active session, or Forget to also remove its saved token. Remove the extension through the browser's extension management page to remove its saved local data.
 
 Automating a normal Discord user account is forbidden by Discord and may lead to account termination. Rate-limit handling does not eliminate that risk, and messages deleted by Discord cannot be restored by this extension.

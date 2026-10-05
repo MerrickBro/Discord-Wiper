@@ -96,7 +96,7 @@ export class MessageWiper {
       this.#state.paused = false;
       this.#clearSecrets();
       this.#emit();
-      this.#onLog("Stopped. Token and preview cleared.", "info");
+      this.#onLog("Stopped. Session token and preview cleared.", "info");
     }
   }
 
@@ -116,7 +116,7 @@ export class MessageWiper {
     this.#state.paused = false;
     this.#state.error = aborted ? "" : safeErrorMessage(error);
     this.#clearSecrets();
-    this.#onLog(aborted ? "Stopped. Token and preview cleared." : this.#state.error, aborted ? "info" : "error");
+    this.#onLog(aborted ? "Stopped. Session token and preview cleared." : this.#state.error, aborted ? "info" : "error");
     this.#emit();
   }
 
@@ -165,7 +165,7 @@ export class MessageWiper {
       if (!this.#messageIds.length) this.#clearSecrets();
       this.#onLog(this.#messageIds.length ?
         `Preview ready: ${this.#state.matched.toLocaleString()} own messages. Start requires confirmation; nothing has been deleted.` :
-        "No eligible messages found in accessible history. Missing history permission can return an empty result. Token cleared.", "info");
+        "No eligible messages found in accessible history. Missing history permission can return an empty result. Session token cleared.", "info");
       this.#emit();
       return this.state;
     } catch (error) {
@@ -190,7 +190,7 @@ export class MessageWiper {
       }
       this.#state.phase = "complete";
       this.#clearSecrets();
-      this.#onLog(`Complete: ${this.#state.deleted.toLocaleString()} deleted · ${this.#state.alreadyGone.toLocaleString()} already absent. Token cleared.`, "info");
+      this.#onLog(`Complete: ${this.#state.deleted.toLocaleString()} deleted · ${this.#state.alreadyGone.toLocaleString()} already absent. Session token cleared.`, "info");
       this.#emit();
       return this.state;
     } catch (error) {

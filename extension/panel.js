@@ -1,6 +1,8 @@
 import { MessageWiper } from "./core/wiper.js";
 import { SessionLease } from "./core/sessionLease.js";
 import { loadPreferences, savePreferences } from "./core/preferences.js";
+import { TokenStore, savedTokenKey, cleanSavedToken } from "./core/tokenStore.js";
+import { pacePresets, paceFromDelays } from "./core/pacing.js";
 import { discordOrigins, isSnowflake, safeErrorMessage, validateChannelId, validateDelays, validateToken, WiperError } from "./core/validation.js";
 
 const elements = Object.fromEntries([...document.querySelectorAll("[id]")].map(element => [element.id, element]));
@@ -8,12 +10,17 @@ const parentOrigin = new URL(location.href).searchParams.get("parentOrigin");
 const bridgeId = new URL(location.href).searchParams.get("bridgeId");
 const embedded = window.parent !== window && discordOrigins.includes(parentOrigin) && Boolean(bridgeId);
 const lease = new SessionLease();
+const tokenStore = new TokenStore(chrome.storage.local);
 let acquiring = false;
 let stopping = false;
 let channelRequested = false;
 let waitTimer = null;
 let savedTheme = "dark";
 let preferencesReady = false;
+let credentialBusy = false;
+let rememberedToken = "";
+let savedTokenPresent = false;
+let sessionSavedToken = "";
 
 function appendLog(message, level = "info") {
   const followingBottom = elements.logList.scrollHeight - elements.logList.clientHeight - elements.logList.scrollTop < 24;
@@ -53,8 +60,8 @@ function updateStatus(state) {
   if (state.phase === "scanning") detail = "Reading accessible history. No messages are being deleted.";
   if (state.phase === "ready") detail = `${state.matched.toLocaleString()} own messages ready. Start opens the deletion confirmation.`;
   if (state.phase === "deleting") detail = `${(state.deleted + state.alreadyGone).toLocaleString()} / ${state.matched.toLocaleString()} processed · ${state.alreadyGone.toLocaleString()} already absent.`;
-  if (state.phase === "complete") detail = `Finished · ${state.deleted.toLocaleString()} deleted · ${state.alreadyGone.toLocaleString()} already absent · ${state.skipped.toLocaleString()} unsupported own messages skipped. Token cleared.`;
-  if (state.phase === "stopped") detail = "Token and preview cleared. A request already sent may have finished.";
+  if (state.phase === "complete") detail = `Finished · ${state.deleted.toLocaleString()} deleted · ${state.alreadyGone.toLocaleString()} already absent · ${state.skipped.toLocaleString()} unsupported own messages skipped. ${savedTokenPresent ? "Saved token kept." : "Token cleared."}`;
+  if (state.phase === "stopped") detail = `Session and preview cleared. ${savedTokenPresent ? "Saved token kept." : "Token cleared."} A request already sent may have finished.`;
   if (state.phase === "stopping") detail = "Stopping requests and clearing the token. An already-sent deletion may finish.";
   if (state.phase === "error") detail = state.error;
   if (state.paused) detail = "Waiting for Resume. A request already sent may finish. Discord cooldowns remain in effect.";
@@ -64,17 +71,20 @@ function updateStatus(state) {
 
 function renderState(state) {
   updateStatus(state);
-  const locked = acquiring || stopping || ["scanning", "ready", "deleting", "stopping"].includes(state.phase);
+  const locked = acquiring || stopping || credentialBusy || ["scanning", "ready", "deleting", "stopping"].includes(state.phase);
   const active = ["scanning", "deleting"].includes(state.phase);
-  for (const name of ["tokenInput", "channelInput", "minDelayInput", "maxDelayInput", "rememberChannelInput", "riskInput", "showTokenButton", "currentChannelButton"]) {
+  for (const name of ["tokenInput", "channelInput", "minDelayInput", "maxDelayInput", "rememberChannelInput", "rememberTokenInput", "speedPresetInput", "riskInput", "showTokenButton", "currentChannelButton"]) {
     elements[name].disabled = locked || !preferencesReady;
   }
-  elements.tokenInput.placeholder = locked ? "Token held in session memory" : "Paste your own account token";
+  elements.tokenInput.placeholder = locked ? "Token held in session memory" : rememberedToken ? "Saved token available" : "Paste your own account token";
+  elements.tokenModeLabel.textContent = savedTokenPresent ? "Saved locally" : "Memory only";
+  elements.savedTokenHint.hidden = false;
+  elements.forgetTokenButton.disabled = acquiring || stopping || credentialBusy || !preferencesReady || (!savedTokenPresent && !elements.tokenInput.value);
   elements.previewButton.disabled = locked || !preferencesReady;
-  elements.startButton.disabled = state.phase !== "ready" || stopping;
+  elements.startButton.disabled = state.phase !== "ready" || stopping || credentialBusy;
   elements.pauseButton.disabled = !active || stopping;
   elements.pauseButton.textContent = state.paused ? "Resume" : "Pause";
-  elements.stopButton.disabled = acquiring || stopping || (!locked && !elements.tokenInput.value);
+  elements.stopButton.disabled = acquiring || stopping || credentialBusy || (!locked && !elements.tokenInput.value);
   elements.scannedCount.textContent = state.scanned.toLocaleString();
   elements.matchedCount.textContent = state.matched.toLocaleString();
   elements.deletedCount.textContent = state.deleted.toLocaleString();
@@ -113,6 +123,30 @@ function clearTokenField() {
   elements.showTokenButton.setAttribute("aria-pressed", "false");
 }
 
+function restoreRememberedToken() {
+  if (rememberedToken && elements.rememberTokenInput.checked && !elements.tokenInput.value) {
+    elements.tokenInput.value = rememberedToken;
+    elements.tokenInput.type = "password";
+  }
+}
+
+async function removeRejectedToken(error) {
+  if (!(error instanceof WiperError) || error.code !== "invalidToken" || !sessionSavedToken) return;
+  const rejectedToken = sessionSavedToken;
+  if (rememberedToken === rejectedToken) {
+    rememberedToken = "";
+    elements.rememberTokenInput.checked = false;
+  }
+  try {
+    if (await tokenStore.forget(rejectedToken)) {
+      savedTokenPresent = false;
+      appendLog("Rejected saved token removed. Paste a current token before trying again.", "warning");
+    }
+  } catch {
+    appendLog("The rejected saved token could not be removed. Use Forget to remove its stored copy.", "error");
+  }
+}
+
 async function persistPreferences() {
   if (!preferencesReady) return;
   try {
@@ -133,29 +167,46 @@ function applyTheme(theme) {
 
 elements.configForm.addEventListener("submit", async event => {
   event.preventDefault();
-  if (acquiring || ["scanning", "ready", "deleting", "stopping"].includes(wiper.state.phase)) return;
+  if (acquiring || credentialBusy || stopping || !preferencesReady || ["scanning", "ready", "deleting", "stopping"].includes(wiper.state.phase)) return;
   clearError();
   let options;
   try {
     if (!elements.riskInput.checked) throw new WiperError("Acknowledge the account and permanent deletion risks before making API requests.");
-    options = { token: validateToken(elements.tokenInput.value), channelId: validateChannelId(elements.channelInput.value),
+    options = { token: validateToken(elements.tokenInput.value || (elements.rememberTokenInput.checked ? rememberedToken : "")), channelId: validateChannelId(elements.channelInput.value),
       ...validateDelays(Number(elements.minDelayInput.value), Number(elements.maxDelayInput.value)) };
     acquiring = true;
     renderState(wiper.state);
     await lease.acquire();
     await persistPreferences();
+    sessionSavedToken = "";
+    if (elements.rememberTokenInput.checked) {
+      try { await tokenStore.save(options.token); }
+      catch { throw new WiperError("The token could not be saved. Turn off Remember token to keep it in memory only."); }
+      rememberedToken = options.token;
+      savedTokenPresent = true;
+      sessionSavedToken = options.token;
+    }
     clearTokenField();
     acquiring = false;
     const task = wiper.preview(options);
     options.token = "";
     await task;
   } catch (error) {
+    acquiring = true;
+    renderState(wiper.state);
     clearTokenField();
+    await removeRejectedToken(error);
     if (!wiper.state.error && wiper.state.phase !== "stopped") showError(error);
   } finally {
     if (options) options.token = "";
+    if (wiper.state.phase !== "ready") {
+      acquiring = true;
+      renderState(wiper.state);
+      sessionSavedToken = "";
+      await lease.release();
+      restoreRememberedToken();
+    }
     acquiring = false;
-    if (wiper.state.phase !== "ready") await lease.release();
     renderState(wiper.state);
   }
 });
@@ -189,27 +240,96 @@ elements.confirmForm.addEventListener("submit", async event => {
   try {
     await wiper.deletePreview({ channelId, acceptRisk: elements.permanentInput.checked });
   } catch (error) {
+    acquiring = true;
+    renderState(wiper.state);
+    await removeRejectedToken(error);
     if (!wiper.state.error && wiper.state.phase !== "stopped") showError(error);
   } finally {
+    acquiring = true;
+    renderState(wiper.state);
     elements.confirmationInput.value = "";
     elements.permanentInput.checked = false;
+    sessionSavedToken = "";
     await lease.release();
+    restoreRememberedToken();
+    acquiring = false;
     renderState(wiper.state);
   }
 });
 
 elements.pauseButton.addEventListener("click", () => { wiper.state.paused ? wiper.resume() : wiper.pause(); });
 elements.stopButton.addEventListener("click", async () => {
-  if (stopping || acquiring) return;
+  if (stopping || acquiring || credentialBusy) return;
   stopping = true;
   clearTokenField();
   elements.confirmDialog.close();
   clearError();
   renderState(wiper.state);
   await wiper.stop();
+  sessionSavedToken = "";
   await lease.release();
   stopping = false;
+  restoreRememberedToken();
   renderState(wiper.state);
+});
+
+elements.rememberTokenInput.addEventListener("change", async () => {
+  if (!preferencesReady || credentialBusy || acquiring || stopping) return;
+  credentialBusy = true;
+  renderState(wiper.state);
+  clearError();
+  try {
+    if (elements.rememberTokenInput.checked) {
+      const token = validateToken(elements.tokenInput.value || rememberedToken);
+      await tokenStore.save(token);
+      rememberedToken = token;
+      savedTokenPresent = true;
+      appendLog("Token saved on this device. Use Forget to remove it.");
+    } else {
+      await tokenStore.forget();
+      rememberedToken = "";
+      savedTokenPresent = false;
+      appendLog("Saved token removed. The current input stays in memory only.");
+    }
+  } catch (error) {
+    elements.rememberTokenInput.checked = Boolean(rememberedToken);
+    showError(error instanceof WiperError ? error : new WiperError("The saved token could not be updated. Try again or use memory-only mode."));
+  } finally {
+    credentialBusy = false;
+    renderState(wiper.state);
+  }
+});
+
+elements.forgetTokenButton.addEventListener("click", async () => {
+  if (acquiring || stopping || credentialBusy || !preferencesReady) return;
+  stopping = true;
+  rememberedToken = "";
+  sessionSavedToken = "";
+  elements.rememberTokenInput.checked = false;
+  clearTokenField();
+  elements.confirmDialog.close();
+  clearError();
+  renderState(wiper.state);
+  await wiper.stop();
+  await lease.release();
+  try {
+    await tokenStore.forget();
+    savedTokenPresent = false;
+    appendLog("Token forgotten. Saved copy, current input, and this panel's session cleared.");
+  } catch {
+    showError(new WiperError("The session stopped, but the saved copy could not be removed. Try Forget again."));
+  } finally {
+    stopping = false;
+    renderState(wiper.state);
+  }
+});
+
+elements.speedPresetInput.addEventListener("change", () => {
+  const preset = pacePresets[elements.speedPresetInput.value];
+  if (!preset) return;
+  elements.minDelayInput.value = preset.minDelay;
+  elements.maxDelayInput.value = preset.maxDelay;
+  persistPreferences();
 });
 elements.tokenInput.addEventListener("input", () => renderState(wiper.state));
 elements.showTokenButton.addEventListener("click", () => {
@@ -225,7 +345,18 @@ elements.themeButton.addEventListener("click", () => {
   persistPreferences();
 });
 elements.closeButton.addEventListener("click", () => { wiper.pause(); sendToParent("merrickWiperClose"); });
-for (const name of ["minDelayInput", "maxDelayInput", "channelInput", "rememberChannelInput"]) elements[name].addEventListener("change", persistPreferences);
+for (const name of ["minDelayInput", "maxDelayInput", "channelInput", "rememberChannelInput"]) elements[name].addEventListener("change", () => {
+  elements.speedPresetInput.value = paceFromDelays(Number(elements.minDelayInput.value), Number(elements.maxDelayInput.value));
+  persistPreferences();
+});
+
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area !== "local" || !changes[savedTokenKey]) return;
+  rememberedToken = cleanSavedToken(changes[savedTokenKey].newValue);
+  savedTokenPresent = changes[savedTokenKey].newValue !== undefined;
+  elements.rememberTokenInput.checked = Boolean(rememberedToken);
+  if (preferencesReady) renderState(wiper.state);
+});
 
 window.addEventListener("message", event => {
   if (!embedded || event.source !== window.parent || event.origin !== parentOrigin || event.data?.bridgeId !== bridgeId) return;
@@ -251,6 +382,8 @@ document.addEventListener("keydown", event => {
 document.addEventListener("visibilitychange", () => { if (document.hidden) wiper.pause(); });
 window.addEventListener("pagehide", () => {
   clearTokenField();
+  rememberedToken = "";
+  sessionSavedToken = "";
   wiper.stop();
   lease.release();
 });
@@ -261,11 +394,20 @@ try {
   const preferences = await loadPreferences(chrome.storage.local);
   elements.minDelayInput.value = preferences.minDelay;
   elements.maxDelayInput.value = preferences.maxDelay;
+  elements.speedPresetInput.value = paceFromDelays(preferences.minDelay, preferences.maxDelay);
   elements.rememberChannelInput.checked = preferences.rememberChannel;
   elements.channelInput.value = preferences.channelId;
   applyTheme(preferences.theme);
 } catch {
   appendLog("Preferences unavailable. Using defaults; the token will stay in memory.", "warning");
+}
+try {
+  rememberedToken = await tokenStore.load();
+  savedTokenPresent = Boolean(rememberedToken);
+  elements.rememberTokenInput.checked = savedTokenPresent;
+  restoreRememberedToken();
+} catch {
+  appendLog("Saved token unavailable. Paste a token to keep it in memory only.", "warning");
 }
 preferencesReady = true;
 renderState(wiper.state);

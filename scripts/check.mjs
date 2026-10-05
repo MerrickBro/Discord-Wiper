@@ -52,4 +52,8 @@ for (const match of html.matchAll(/(?:src|href)="([^"#]+)"/g)) {
 }
 assert.ok(html.includes("account termination"));
 assert.ok(html.includes('id="confirmationInput"'));
+assert.ok(html.includes('id="rememberTokenInput"'));
+assert.ok(html.includes('id="forgetTokenButton"'));
+assert.ok(html.includes('id="speedPresetInput"'));
+assert.ok(html.includes(`v${manifest.version}`));
 console.log(`Validated Manifest V3, ${files.length} extension resources, JavaScript syntax, local imports, and permission/CSP constraints.`);

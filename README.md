@@ -18,30 +18,35 @@ Firefox and the Discord desktop application are not supported by this package. T
 
 ## Use
 
-1. Enter your own authorization token. It is masked by default. This extension does not extract Discord's token, inspect its internal application modules, or collect your login details. Never share a real token in issues, chats, or screenshots.
+1. Enter your own authorization token. It is masked by default. Optionally check **Remember token on this device** to restore it on later visits. This stores it in this browser's extension-local storage without encryption by the extension; use a trusted device. Saving never starts a scan or deletion automatically. This extension does not extract Discord's token, inspect its internal application modules, or collect your login details. Never share a real token in issues, chats, or screenshots.
 2. Enter the channel or DM ID, or choose **Current** while that conversation is open. To copy IDs manually, enable Discord's **Developer Mode**, then use the conversation's **Copy Channel ID** command. The final numeric component of a Discord conversation URL is also its channel ID.
-3. Set minimum and maximum request delays. Defaults are **1,000–2,000 ms**, and the allowed range is **1,000–60,000 ms**. Equal values give a fixed delay. Discord cooldowns always take precedence over shorter settings.
+3. Choose **Balanced** (**1,000–2,000 ms**) or **Faster** (**500–750 ms**), or enter custom delays from **250–60,000 ms**. Equal values give a fixed delay. Existing delay preferences are preserved. Discord cooldowns always take precedence; a `429` also temporarily increases request pacing. Actual throughput depends on API response times and Discord's limits.
 4. Read and acknowledge the account/deletion warning, then choose **Preview**. This verifies the token's author ID using `/users/@me`, verifies the selected channel, and scans accessible history without deleting anything.
 5. Review the eligible count and account ID. Choose **Start**, type the exact channel ID, and explicitly confirm permanent deletion.
-6. Use **Pause / Resume** to control the next request. **Stop** aborts waits and active fetches, discards the preview, and clears the token. A request already sent to Discord may still complete on the server.
+6. Use **Pause / Resume** to control the next request. **Stop** aborts waits and active fetches and discards the preview. A remembered token is kept and restored in the masked input; memory-only tokens are cleared. **Forget** removes the saved copy, clears the current input, and stops this panel's session. A request already sent to Discord may still complete on the server.
 
-Hiding the panel or switching away from its tab pauses active work. Reopening it never resumes deletion automatically. Closing/reloading the tab clears the session. After a stop or error, enter the token again and create a new preview.
+Hiding the panel or switching away from its tab pauses active work. Reopening it never resumes deletion automatically. Closing/reloading the tab clears the active session but preserves an opted-in saved token. Every new run still needs a new preview and deletion confirmation. A `401` removes the rejected saved token if it still matches this run's saved value; it does not erase a newer replacement saved in another panel. If storage removal fails, the panel shows a warning and asks you to use Forget.
 
-The preview is a frozen list of eligible message IDs. Messages posted after the preview are excluded; create a fresh preview to include them. A preview with no eligible messages clears its token automatically. Large histories take time because the extension reads all accessible channel messages in pages of 100, including messages from other authors.
+Unchecking **Remember token** removes the saved copy while leaving the current input available in memory. A replacement token is saved when you check Remember or create a new preview. Other open panels may still hold a previously entered token in memory; close them or use Stop/Forget there to end their sessions.
+
+The preview is a frozen list of eligible message IDs. Messages posted after the preview are excluded; create a fresh preview to include them. A preview with no eligible messages clears its active client token. Large histories take time because the extension reads all accessible channel messages in pages of 100, including messages from other authors.
 
 ## Privacy and permissions
 
-- Tokens stay in private JavaScript memory inside an **extension-origin iframe**. They are sent only as `Authorization` headers to `https://discord.com/api/v10`. They never enter Discord's DOM, URL parameters, `postMessage`, logs, `localStorage`, or extension storage.
-- Non-sensitive delay/theme preferences use extension `chrome.storage.local`, restricted to trusted extension contexts. The channel ID is saved only if **Remember this channel** is checked; unchecking it removes the saved channel ID. No credentials, account IDs, message lists, or activity logs are persisted.
+- Tokens stay in private JavaScript memory inside an **extension-origin iframe** by default. They are sent only as `Authorization` headers to `https://discord.com/api/v10`. They never enter Discord's DOM, URL parameters, `postMessage`, logs, or web `localStorage`.
+- **Remember token** explicitly permits a token-only entry in `chrome.storage.local`. Access is restricted to trusted extension contexts before reading or writing credentials. It is not synced by the extension or encrypted by this extension. Forget removes the stored entry; it cannot guarantee physical erasure from browser/device backups or memory.
+- Non-sensitive delay/theme preferences use a separate allowlisted settings entry. The channel ID is saved only if **Remember this channel** is checked; unchecking it removes the saved channel ID. No account IDs, message lists, message bodies, or activity logs are persisted.
 - There is no server, telemetry, analytics, remote script, or Discord login integration. Raw Discord message bodies are read transiently for filtering and never displayed or persisted. Only eligible message IDs remain in memory for the preview, capped at 100,000.
 - Permissions are limited to extension settings storage and the three Discord web origins. The content script mounts/toggles the panel and supplies the current channel ID. It cannot request deletion or receive the token. The service worker only handles the toolbar button and storage access level.
 - A Web Lock allows only one active extension session per browser storage partition, including while a preview awaits confirmation. Different browser profiles, private windows, storage partitions, and unrelated tools are outside this lock.
 
-Memory-only handling reduces exposure; it cannot protect against a compromised browser/device or privileged debugging. JavaScript strings cannot be guaranteed to be physically zeroed in memory. Clearing removes this extension's references and prevents further authenticated requests.
+Memory-only handling reduces exposure; it cannot protect against a compromised browser/device or privileged debugging. JavaScript strings cannot be guaranteed to be physically zeroed in memory. Stop clears the active engine's credential references; opting into remembering intentionally retains a saved token and a masked input for reuse. Forget removes those references in this panel and its stored entry.
 
 ## Behavior and limitations
 
 The extension serializes every HTTP request. It applies the selected delay after each response, honors exhausted-bucket reset headers, reads `Retry-After` / JSON `retry_after` on `429`, and treats global cooldowns as a barrier across the entire session. It adds a 250 ms timing margin and has bounded retries for rate limits, connection failures, and server errors. This is rate-limit compliance, not an attempt to conceal automation.
+
+A `429` doubles the adaptive pacing floor, starting at twice the selected minimum and capped at 60 seconds. After five successful responses, the floor halves and eventually returns to the chosen preset. This never shortens an advertised Discord cooldown, and all requests remain serialized.
 
 `401`, `403`, verification challenges, invalid pagination, unknown channels, malformed responses, and unexpected deletion responses stop execution. A DELETE `404` with Discord code `10008` means the message is already absent and is counted separately. A network interruption can obscure whether a deletion succeeded before the retry; an already-absent count does not prove this run had no effect on that message.
 
@@ -61,9 +66,9 @@ npm run check
 npm run package
 ```
 
-The package command creates `dist/merrick-discord-wiper-0.1.0.zip`. The ZIP contains the ready-to-load extension, this README, and the architecture/privacy notes. It excludes tests, development artifacts, and any session state.
+The package command creates `dist/merrick-discord-wiper-0.2.0.zip`. The ZIP contains the ready-to-load extension, this README, and the architecture/privacy notes. It excludes tests, development artifacts, and any session state.
 
-`npm test` runs mocked API tests for pagination, author filtering, confirmation, rate-limit responses, global waits, error handling, stop/pause behavior, settings sanitization, and session exclusion. No real Discord account or messages are used. `npm run check` validates JavaScript syntax, local imports/resources, permissions, and the release file set.
+`npm test` runs mocked API tests for pagination, author filtering, confirmation, rate-limit responses, adaptive pacing, global waits, error handling, stop/pause behavior, token storage, settings sanitization, and session exclusion. Panel-flow tests run the real panel module with mocked DOM/storage/clock/API surfaces; they cover startup restoration, explicit opt-in, completed deletion, Stop, Forget, rejection cleanup, and opt-out. No real Discord account or messages are used. `npm run check` validates JavaScript syntax, local imports/resources, permissions, and the release file set.
 
 An optional Chromium smoke test is available with Playwright installed and its Chromium browser downloaded:
 
@@ -75,7 +80,11 @@ npm run test:browser
 
 It sideloads the actual extension, intercepts every Discord request, uses a fictional token/account, and checks UI, preview/confirmation, rate-limit/pause/resume flow, cross-tab exclusion, and storage. It never contacts a real Discord account.
 
-The GitHub Actions workflow runs the core checks and this browser test against the extracted release ZIP. It also checks Stop, authentication errors, empty history, reload behavior, small-screen layout, and the PTB/Canary clients. The workflow saves the installable ZIP and UI screenshots as downloadable artifacts.
+The GitHub Actions workflow runs the core checks and this browser test against the extracted release ZIP. It also checks Stop, authentication errors, empty history, reload behavior, token persistence/removal, small-screen layout, and the PTB/Canary clients. The workflow saves the installable ZIP and UI screenshots as downloadable artifacts.
+
+## Update an unpacked installation
+
+Stop any active run, replace the files in your existing unpacked extension folder with the new ZIP's contents, then select **Reload** on the browser's extensions page and reload Discord. Keep the same folder path and extension installation to preserve existing preferences and an opted-in token. Removing the extension clears its local data.
 
 ## Architecture
 

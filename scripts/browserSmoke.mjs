@@ -67,16 +67,22 @@ async function configure(frame) {
   await frame.locator("#riskInput").check();
 }
 
-async function assertPrivateState(frame) {
+async function assertPrivateState(frame, remembered = false) {
   const stored = await frame.evaluate(async () => ({
     settings: await chrome.storage.local.get(null),
     localKeys: Object.keys(localStorage),
     token: document.getElementById("tokenInput").value,
+    tokenType: document.getElementById("tokenInput").type,
     text: document.body.textContent
   }));
-  assert.equal(stored.token, "");
+  assert.equal(stored.token, remembered ? testToken : "");
+  assert.equal(stored.tokenType, "password");
   assert.deepEqual(stored.localKeys, []);
-  assert.ok(!JSON.stringify(stored.settings).includes(testToken));
+  if (remembered) assert.equal(stored.settings.wiperSavedToken, testToken);
+  else assert.equal("wiperSavedToken" in stored.settings, false);
+  const nonCredentialSettings = { ...stored.settings };
+  delete nonCredentialSettings.wiperSavedToken;
+  assert.ok(!JSON.stringify(nonCredentialSettings).includes(testToken));
   assert.ok(!JSON.stringify(stored.settings).includes(authorId));
   assert.ok(!stored.text.includes(testToken));
   assert.ok(!stored.text.includes(privateContent));
@@ -202,7 +208,8 @@ try {
   await frame.locator("#confirmationInput").fill(channelId);
   await frame.locator("#permanentInput").check();
   await frame.locator("#confirmDeleteButton").click();
-  await frame.waitForFunction(() => document.getElementById("statusText").textContent === "Discord cooldown");
+  await frame.waitForFunction(() => document.getElementById("logList").textContent.includes("Global rate limit"));
+  await waitForState(frame, "waiting");
   await frame.locator("#pauseButton").click();
   await waitForState(frame, "paused");
   const cooldownCount = requests.length;
@@ -263,6 +270,43 @@ try {
   assert.deepEqual(Object.keys(stored), ["wiperPreferences"]);
   assert.deepEqual(Object.keys(stored.wiperPreferences).sort(), ["channelId", "maxDelay", "minDelay", "rememberChannel", "theme"]);
   await capture(page, "mobile-ready");
+
+  await frame.locator("#speedPresetInput").selectOption("faster");
+  assert.equal(await frame.locator("#minDelayInput").inputValue(), "500");
+  assert.equal(await frame.locator("#maxDelayInput").inputValue(), "750");
+  await frame.locator("#tokenInput").fill(testToken);
+  await frame.locator("#rememberTokenInput").check();
+  await frame.waitForFunction(async () => (await chrome.storage.local.get("wiperSavedToken")).wiperSavedToken !== undefined);
+  await assertPrivateState(frame, true);
+  const reloadCount = requests.length;
+  await page.reload();
+  frame = await waitForPanel(page);
+  await assertPrivateState(frame, true);
+  assert.equal(await frame.locator("#speedPresetInput").inputValue(), "faster");
+  assert.equal(await frame.locator("#riskInput").isChecked(), false);
+  assert.equal(requests.length, reloadCount);
+  await frame.locator("#riskInput").check();
+  await frame.locator("#previewButton").click();
+  await waitForState(frame, "waiting");
+  await frame.locator("#stopButton").click();
+  await frame.waitForFunction(expected => document.getElementById("statusBadge").dataset.state === "stopped" &&
+    !document.getElementById("previewButton").disabled && document.getElementById("tokenInput").value === expected, testToken);
+  await assertPrivateState(frame, true);
+  await frame.locator("#previewButton").click();
+  await waitForState(frame, "waiting");
+  await frame.locator("#forgetTokenButton").click();
+  await frame.waitForFunction(async () => !("wiperSavedToken" in await chrome.storage.local.get(null)) && !document.getElementById("previewButton").disabled);
+  await assertPrivateState(frame);
+  await frame.locator("#tokenInput").fill(testToken);
+  await frame.locator("#rememberTokenInput").check();
+  await frame.waitForFunction(async () => (await chrome.storage.local.get("wiperSavedToken")).wiperSavedToken !== undefined);
+  scenario = "unauthorized";
+  await frame.locator("#previewButton").click();
+  await frame.waitForFunction(async () => document.getElementById("statusBadge").dataset.state === "error" &&
+    !("wiperSavedToken" in await chrome.storage.local.get(null)) && !document.getElementById("previewButton").disabled);
+  await assertPrivateState(frame);
+  assert.equal(await frame.locator("#rememberTokenInput").isChecked(), false);
+  console.log("Passed: opt-in token reload, no automatic requests, faster preset persistence, Stop keeps credentials, Forget clears them, and rejected-token cleanup.");
 
   for (const origin of ["https://ptb.discord.com", "https://canary.discord.com"]) {
     const clientTab = await context.newPage();

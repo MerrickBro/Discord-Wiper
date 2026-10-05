@@ -24,12 +24,14 @@
     </aside>
     <form id="configForm" autocomplete="off">
       <div class="field">
-        <label for="tokenInput">Authorization token <span class="fieldTag">Memory only</span></label>
+        <label for="tokenInput">Authorization token <span id="tokenModeLabel" class="fieldTag">Memory only</span></label>
         <div class="inputGroup">
           <input id="tokenInput" type="password" autocomplete="off" spellcheck="false" autocapitalize="off" placeholder="Paste your own account token" aria-describedby="tokenHint" maxlength="4096">
           <button id="showTokenButton" class="inlineButton" type="button" aria-pressed="false">Show</button>
         </div>
-        <p class="hint" id="tokenHint">Cleared on stop, completion, error, or reload.</p>
+        <p class="hint" id="tokenHint">Kept in memory unless you choose to remember it.</p>
+        <div class="tokenOptions"><label class="checkLine"><input id="rememberTokenInput" type="checkbox">Remember token on this device</label><button id="forgetTokenButton" class="textButton" type="button" disabled>Forget</button></div>
+        <p id="savedTokenHint" class="hint">Remembering saves it in this browser without encryption. Use a trusted device.</p>
       </div>
       <div class="field">
         <label for="channelInput">Channel / DM ID</label>
@@ -38,10 +40,12 @@
           <button id="currentChannelButton" class="inlineButton" type="button">Current</button>
         </div>
       </div>
+      <div class="field"><label for="speedPresetInput">Pace</label><select id="speedPresetInput"><option value="balanced">Balanced · 1,000–2,000 ms</option><option value="faster">Faster · 500–750 ms</option><option value="custom">Custom</option></select></div>
       <div class="delayGrid">
-        <div class="field"><label for="minDelayInput">Min delay <span>(ms)</span></label><input id="minDelayInput" type="number" min="1000" max="60000" step="1" value="1000" required></div>
-        <div class="field"><label for="maxDelayInput">Max delay <span>(ms)</span></label><input id="maxDelayInput" type="number" min="1000" max="60000" step="1" value="2000" required></div>
+        <div class="field"><label for="minDelayInput">Min delay <span>(ms)</span></label><input id="minDelayInput" type="number" min="250" max="60000" step="1" value="1000" required></div>
+        <div class="field"><label for="maxDelayInput">Max delay <span>(ms)</span></label><input id="maxDelayInput" type="number" min="250" max="60000" step="1" value="2000" required></div>
       </div>
+      <p class="hint pacingHint">Discord cooldowns take priority. Rate limits automatically slow the pace.</p>
       <label class="checkLine rememberLine"><input id="rememberChannelInput" type="checkbox">Remember this channel on this device</label>
       <label class="checkLine riskLine"><input id="riskInput" type="checkbox">I understand the account and permanent deletion risks.</label>
       <p id="formError" class="formError" role="alert" hidden></p>
@@ -64,7 +68,7 @@
       <ol id="logList" role="log" aria-label="Activity log" aria-live="off"></ol>
     </section>
   </main>
-  <footer><span>Only your messages · No telemetry</span><span class="version">v0.1.0</span></footer>
+  <footer><span>Only your messages · No telemetry</span><span class="version">v0.2.0</span></footer>
   <dialog id="confirmDialog" aria-labelledby="confirmTitle" aria-describedby="confirmDescription">
     <form id="confirmForm" autocomplete="off">
       <span class="eyebrow dangerText">Permanent deletion</span>

@@ -1,7 +1,10 @@
+import { minRequestDelay, maxRequestDelay } from "./pacing.js";
+
 export class WiperError extends Error {
-  constructor(message) {
+  constructor(message, code = "") {
     super(message);
     this.name = "WiperError";
+    this.code = code;
   }
 }
 
@@ -23,8 +26,8 @@ export function validateChannelId(value) {
 
 export function validateDelays(minDelay, maxDelay) {
   if (!Number.isInteger(minDelay) || !Number.isInteger(maxDelay) ||
-      minDelay < 1000 || maxDelay > 60000 || minDelay > maxDelay) {
-    throw new WiperError("Use whole-number delays from 1,000 to 60,000 ms, with minimum ≤ maximum.");
+      minDelay < minRequestDelay || maxDelay > maxRequestDelay || minDelay > maxDelay) {
+    throw new WiperError("Use whole-number delays from 250 to 60,000 ms, with minimum ≤ maximum.");
   }
   return { minDelay, maxDelay };
 }
