@@ -51,6 +51,7 @@ for (const match of html.matchAll(/(?:src|href)="([^"#]+)"/g)) {
   if (!match[1].startsWith("https://")) assert.ok(extensionPaths.has(match[1]), `Missing HTML resource: ${match[1]}`);
 }
 assert.ok(html.includes("account termination"));
+assert.ok(html.includes('id="riskWarning"'));
 assert.ok(html.includes('id="confirmationInput"'));
 assert.ok(html.includes('id="rememberTokenInput"'));
 assert.ok(html.includes('id="forgetTokenButton"'));

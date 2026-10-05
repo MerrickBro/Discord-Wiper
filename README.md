@@ -22,7 +22,7 @@ Firefox and the Discord desktop application are not supported by this package. T
 2. Enter the channel or DM ID, or choose **Current** while that conversation is open. To copy IDs manually, enable Discord's **Developer Mode**, then use the conversation's **Copy Channel ID** command. The final numeric component of a Discord conversation URL is also its channel ID.
 3. Optionally expand **Filters** to enable dates, multiple words, **Keep pinned messages**, or attachments. All start off on a new panel or reload; filter values are not saved. See the matching rules below.
 4. Choose **Balanced** (**1,000–2,000 ms**) or **Faster** (**500–750 ms**), or enter custom delays from **250–60,000 ms**. Equal values give a fixed delay. Existing delay preferences are preserved. Discord cooldowns always take precedence; a `429` also temporarily increases request pacing. Actual throughput depends on API response times and Discord's limits.
-5. Read and acknowledge the account/deletion warning, then choose **Preview**. This verifies the token's author ID using `/users/@me`, verifies the selected channel, and scans accessible history without deleting anything.
+5. Read and acknowledge the account/deletion warning, then choose **Preview**. Checking **I understand** hides the warning; unchecking it shows the warning again. A new panel or reload requires acknowledgement again. Preview verifies the token's author ID using `/users/@me`, verifies the selected channel, and scans accessible history without deleting anything.
 6. Review the eligible count, account ID, active filter summary, and number of own messages excluded by filters. Choose **Start**, review the frozen filter settings, type the exact channel ID, and explicitly confirm permanent deletion.
 7. Use **Pause / Resume** to control the next request. **Stop** aborts waits and active fetches and discards the preview. A remembered token is kept and restored in the masked input; memory-only tokens are cleared. **Forget** removes the saved copy, clears the current input, and stops this panel's session. A request already sent to Discord may still complete on the server.
 
@@ -99,7 +99,7 @@ npm run check
 npm run package
 ```
 
-The package command creates `dist/merrick-discord-wiper-0.4.0.zip`. The ZIP contains the ready-to-load extension, this README, and the architecture/privacy notes. It excludes tests, development artifacts, and any session state.
+The package command creates `dist/merrick-discord-wiper-0.4.1.zip`. The ZIP contains the ready-to-load extension, this README, and the architecture/privacy notes. It excludes tests, development artifacts, and any session state.
 
 `npm test` uses fictional tokens and mocked API responses. Coverage includes pagination/ownership, date-window equivalence and request savings, midnight/daylight-saving boundaries, multiple-word and whole-word rules, attachment metadata, late pin checks, timing/cooldowns, confirmation, stop/pause, rate limits, token storage, settings sanitization, and session exclusion. Panel-flow tests run the real panel module with mocked DOM/storage/clock/API surfaces to verify combined filters, locked confirmation, default-off controls, timing, and saved-token behavior. No real Discord account or messages are used. `npm run check` validates syntax, local imports/resources, permissions, and the release file set.
 

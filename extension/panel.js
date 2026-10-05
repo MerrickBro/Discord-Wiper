@@ -116,6 +116,7 @@ function updateStatus(state) {
 
 function renderState(state) {
   updateStatus(state);
+  elements.riskWarning.hidden = elements.riskInput.checked;
   const locked = acquiring || stopping || credentialBusy || ["scanning", "ready", "deleting", "stopping"].includes(state.phase);
   const active = ["scanning", "deleting"].includes(state.phase);
   renderFilters(locked);
@@ -389,7 +390,7 @@ elements.speedPresetInput.addEventListener("change", () => {
   persistPreferences();
 });
 elements.tokenInput.addEventListener("input", () => renderState(wiper.state));
-for (const name of ["dateFilterInput", "dateModeInput", "wordFilterInput", "wordModeInput", "wordMatchInput", "wholeWordsInput", "keepPinnedInput", "attachmentFilterInput", "attachmentModeInput", "attachmentTypeInput"]) {
+for (const name of ["riskInput", "dateFilterInput", "dateModeInput", "wordFilterInput", "wordModeInput", "wordMatchInput", "wholeWordsInput", "keepPinnedInput", "attachmentFilterInput", "attachmentModeInput", "attachmentTypeInput"]) {
   elements[name].addEventListener("change", () => renderState(wiper.state));
 }
 elements.showTokenButton.addEventListener("click", () => {

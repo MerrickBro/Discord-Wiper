@@ -200,6 +200,12 @@ try {
   assert.equal(requests.length, 0);
   await assertPrivateState(frame);
 
+  assert.equal(await frame.locator("#riskWarning").isVisible(), true);
+  await frame.locator("#riskInput").check();
+  assert.equal(await frame.locator("#riskWarning").isVisible(), false);
+  await frame.locator("#riskInput").uncheck();
+  assert.equal(await frame.locator("#riskWarning").isVisible(), true);
+  assert.equal(requests.length, 0);
   await configure(frame);
   await frame.locator("#previewButton").click();
   await waitForState(frame, "waiting");

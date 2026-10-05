@@ -15,7 +15,7 @@
     <button id="closeButton" class="iconButton" type="button" aria-label="Hide panel and pause" title="Hide and pause">×</button>
   </header>
   <main>
-    <aside class="warning" aria-labelledby="riskTitle">
+    <aside id="riskWarning" class="warning" aria-labelledby="riskTitle">
       <span class="warningMark" aria-hidden="true">!</span>
       <div><strong id="riskTitle">Account termination risk</strong>
         <p>Automating a user account violates Discord's Terms of Service and can result in account termination. Rate limits do not remove this risk. Deletion is permanent.</p>
@@ -104,7 +104,7 @@
       <ol id="logList" role="log" aria-label="Activity log" aria-live="off"></ol>
     </section>
   </main>
-  <footer><span>Only your messages · No telemetry</span><span class="version">v0.4.0</span></footer>
+  <footer><span>Only your messages · No telemetry</span><span class="version">v0.4.1</span></footer>
   <dialog id="confirmDialog" aria-labelledby="confirmTitle" aria-describedby="confirmDescription">
     <form id="confirmForm" autocomplete="off">
       <span class="eyebrow dangerText">Permanent deletion</span>

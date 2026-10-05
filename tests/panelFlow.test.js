@@ -134,8 +134,15 @@ test("panel restores opted-in credentials and faster preferences without making 
   assert.equal(panel.elements.rememberTokenInput.checked, true);
   assert.equal(panel.elements.speedPresetInput.value, "faster");
   assert.equal(panel.elements.riskInput.checked, false);
+  assert.equal(panel.elements.riskWarning.hidden, false);
   assert.equal(panel.elements.startButton.disabled, true);
   assert.equal(panel.elements.tokenModeLabel.textContent, "Saved locally");
+  panel.elements.riskInput.checked = true;
+  await panel.elements.riskInput.emit("change");
+  assert.equal(panel.elements.riskWarning.hidden, true);
+  panel.elements.riskInput.checked = false;
+  await panel.elements.riskInput.emit("change");
+  assert.equal(panel.elements.riskWarning.hidden, false);
   assert.deepEqual(panel.requests, []);
 });
 
@@ -151,6 +158,7 @@ test("panel saves on explicit opt-in, then preserves the token through preview a
   const preview = elements.configForm.emit("submit");
   await panel.until(() => elements.statusBadge.dataset.state === "ready" && !elements.startButton.disabled);
   await preview;
+  assert.equal(elements.riskWarning.hidden, true);
   assert.equal(elements.tokenInput.value, "");
   assert.equal(panel.requests.some(request => request.method === "DELETE"), false);
   await elements.startButton.emit("click");
