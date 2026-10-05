@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Merrick's Discord Wiper</title>
+  <link rel="stylesheet" href="panel.css">
+  <script type="module" src="panel.js"></script>
+</head>
+<body>
+  <header class="panelHeader">
+    <div class="brandMark" aria-hidden="true">M</div>
+    <div class="brandText"><span class="eyebrow">Merrick Tools // Local utility</span><h1>Discord Wiper</h1></div>
+    <button id="themeButton" class="iconButton" type="button" aria-label="Switch to light theme" title="Switch theme">◐</button>
+    <button id="closeButton" class="iconButton" type="button" aria-label="Hide panel and pause" title="Hide and pause">×</button>
+  </header>
+  <main>
+    <aside class="warning" aria-labelledby="riskTitle">
+      <span class="warningMark" aria-hidden="true">!</span>
+      <div><strong id="riskTitle">Account termination risk</strong>
+        <p>Automating a user account violates Discord's Terms of Service and can result in account termination. Rate limits do not remove this risk. Deletion is permanent.</p>
+        <a href="https://support.discord.com/hc/en-us/articles/115002192352-Automated-User-Accounts-Self-Bots" target="_blank" rel="noopener noreferrer">Read Discord's self-bot policy ↗</a>
+      </div>
+    </aside>
+    <form id="configForm" autocomplete="off">
+      <div class="field">
+        <label for="tokenInput">Authorization token <span class="fieldTag">Memory only</span></label>
+        <div class="inputGroup">
+          <input id="tokenInput" type="password" autocomplete="off" spellcheck="false" autocapitalize="off" placeholder="Paste your own account token" aria-describedby="tokenHint" maxlength="4096">
+          <button id="showTokenButton" class="inlineButton" type="button" aria-pressed="false">Show</button>
+        </div>
+        <p class="hint" id="tokenHint">Cleared on stop, completion, error, or reload.</p>
+      </div>
+      <div class="field">
+        <label for="channelInput">Channel / DM ID</label>
+        <div class="inputGroup">
+          <input id="channelInput" type="text" inputmode="numeric" spellcheck="false" placeholder="17–20 digit channel ID" maxlength="20">
+          <button id="currentChannelButton" class="inlineButton" type="button">Current</button>
+        </div>
+      </div>
+      <div class="delayGrid">
+        <div class="field"><label for="minDelayInput">Min delay <span>(ms)</span></label><input id="minDelayInput" type="number" min="1000" max="60000" step="1" value="1000" required></div>
+        <div class="field"><label for="maxDelayInput">Max delay <span>(ms)</span></label><input id="maxDelayInput" type="number" min="1000" max="60000" step="1" value="2000" required></div>
+      </div>
+      <label class="checkLine rememberLine"><input id="rememberChannelInput" type="checkbox">Remember this channel on this device</label>
+      <label class="checkLine riskLine"><input id="riskInput" type="checkbox">I understand the account and permanent deletion risks.</label>
+      <p id="formError" class="formError" role="alert" hidden></p>
+      <div class="controls">
+        <button id="previewButton" class="primaryButton" type="submit">Preview</button>
+        <button id="startButton" class="dangerButton" type="button" disabled>Start</button>
+        <button id="pauseButton" class="secondaryButton" type="button" disabled>Pause</button>
+        <button id="stopButton" class="secondaryButton" type="button" disabled>Stop</button>
+      </div>
+    </form>
+    <section class="statusSection" aria-labelledby="statusTitle">
+      <div class="statusHeading"><h2 id="statusTitle">Session</h2><span id="statusBadge" class="statusBadge" data-state="idle"><span class="statusDot"></span><span id="statusText" role="status">Ready</span></span></div>
+      <p id="statusDetail" class="statusDetail">Preview first. Nothing deletes automatically.</p>
+      <div class="stats"><div><span>Scanned</span><strong id="scannedCount">0</strong></div><div><span>Eligible</span><strong id="matchedCount">0</strong></div><div><span>Deleted</span><strong id="deletedCount">0</strong></div></div>
+      <progress id="progressBar" max="1" value="0" aria-label="Deletion progress" hidden></progress>
+      <p id="accountDetail" class="accountDetail" hidden></p>
+    </section>
+    <section class="logSection" aria-labelledby="logTitle">
+      <div class="sectionHeading"><h2 id="logTitle">Activity</h2><button id="clearLogsButton" class="textButton" type="button">Clear log</button></div>
+      <ol id="logList" role="log" aria-label="Activity log" aria-live="off"></ol>
+    </section>
+  </main>
+  <footer><span>Only your messages · No telemetry</span><span class="version">v0.1.0</span></footer>
+  <dialog id="confirmDialog" aria-labelledby="confirmTitle" aria-describedby="confirmDescription">
+    <form id="confirmForm" autocomplete="off">
+      <span class="eyebrow dangerText">Permanent deletion</span>
+      <h2 id="confirmTitle">Delete this preview?</h2>
+      <p id="confirmDescription"></p>
+      <dl class="confirmDetails"><dt>Channel</dt><dd id="confirmChannel"></dd><dt>Account</dt><dd id="confirmAccount"></dd></dl>
+      <div class="field"><label for="confirmationInput">Type the channel ID to confirm</label><input id="confirmationInput" type="text" inputmode="numeric" spellcheck="false" maxlength="20"></div>
+      <label class="checkLine"><input id="permanentInput" type="checkbox">Permanently delete these messages.</label>
+      <p class="hint">Stop can halt future requests. Deleted messages cannot be restored.</p>
+      <div class="dialogActions"><button id="cancelConfirmButton" type="button" class="secondaryButton">Cancel</button><button id="confirmDeleteButton" type="submit" class="dangerButton" disabled>Delete messages</button></div>
+    </form>
+  </dialog>
+</body>
+</html>
