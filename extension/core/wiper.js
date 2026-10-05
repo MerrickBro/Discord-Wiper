@@ -1,5 +1,6 @@
 import { DiscordClient } from "./discordClient.js";
 import { RunControl } from "./control.js";
+import { compileFilters, describeFilters, matchesFilters } from "./filters.js";
 import { isSnowflake, safeErrorMessage, validateChannelId, validateDelays, validateToken, WiperError } from "./validation.js";
 
 const deletableTypes = new Set([0, 6, 7, 8, 9, 10, 11, 12, 14, 15, 16, 17, 18, 19, 20,
@@ -7,7 +8,8 @@ const deletableTypes = new Set([0, 6, 7, 8, 9, 10, 11, 12, 14, 15, 16, 17, 18, 1
 
 function emptyState() {
   return { phase: "idle", paused: false, channelId: "", authorId: "", channelKind: "",
-    scanned: 0, matched: 0, deleted: 0, alreadyGone: 0, skipped: 0, pages: 0,
+    scanned: 0, matched: 0, deleted: 0, alreadyGone: 0, skipped: 0, filtered: 0, pages: 0,
+    filtersActive: false, filterSummary: "Date and word filters off.",
     rateLimits: 0, waitUntil: 0, waitReason: "", error: "" };
 }
 
@@ -23,6 +25,7 @@ export class MessageWiper {
   #clientFactory;
   #controlFactory;
   #maxCandidates;
+  #filters = null;
 
   constructor({ onChange = () => {}, onLog = () => {},
     clientFactory = options => new DiscordClient(options),
@@ -36,13 +39,16 @@ export class MessageWiper {
 
   get state() { return { ...this.#state }; }
 
-  preview({ token, channelId, minDelay = 1000, maxDelay = 2000 }) {
+  preview({ token, channelId, minDelay = 1000, maxDelay = 2000, filters = {} }) {
     if (this.#task || this.#state.phase === "ready") throw new WiperError("Stop the current session before creating another preview.");
     channelId = validateChannelId(channelId);
     validateDelays(minDelay, maxDelay);
     token = validateToken(token);
+    const compiledFilters = compileFilters(filters);
     this.#clearSecrets();
-    this.#state = { ...emptyState(), phase: "scanning", channelId };
+    this.#filters = compiledFilters;
+    this.#state = { ...emptyState(), phase: "scanning", channelId,
+      filtersActive: compiledFilters.dateEnabled || compiledFilters.wordEnabled, filterSummary: describeFilters(compiledFilters) };
     this.#control = this.#controlFactory();
     this.#client = this.#clientFactory({ token, minDelay, maxDelay, control: this.#control,
       onWait: ({ until, reason }) => { this.#state.waitUntil = until; this.#state.waitReason = reason; this.#emit(); },
@@ -106,6 +112,7 @@ export class MessageWiper {
     this.#client?.dispose();
     this.#client = null;
     this.#messageIds.length = 0;
+    this.#filters = null;
     this.#state.waitUntil = 0;
     this.#state.waitReason = "";
   }
@@ -150,6 +157,7 @@ export class MessageWiper {
         for (const message of messages) {
           if (message.author.id !== self.id || message.webhook_id) continue;
           if (!deletableTypes.has(message.type)) { this.#state.skipped++; continue; }
+          if (!matchesFilters(message, this.#filters)) { this.#state.filtered++; continue; }
           if (this.#messageIds.length >= this.#maxCandidates) {
             throw new WiperError(`Preview exceeded ${this.#maxCandidates.toLocaleString()} eligible messages. Stopped without deleting anything.`);
           }

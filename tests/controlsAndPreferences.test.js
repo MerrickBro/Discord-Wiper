@@ -32,12 +32,15 @@ test("stop wakes paused control and resume wakes normal paused checkpoints", asy
 
 test("preferences whitelist excludes tokens, author IDs, logs and deletion state", async () => {
   const input = { token: testToken, authorId: channelId, log: testToken, messageIds: [channelId],
+    dateEnabled: true, dateMode: "during", dateFrom: "2026-10-01", dateTo: "2026-10-04",
+    wordEnabled: true, wordMode: "containing", wordQuery: "private filter phrase",
     minDelay: 1500, maxDelay: 2500, channelId, rememberChannel: false, theme: "light" };
   const clean = cleanPreferences(input);
   assert.deepEqual(clean, { minDelay: 1500, maxDelay: 2500, channelId: "", rememberChannel: false, theme: "light" });
   const storage = { data: {}, async set(values) { this.data = values; }, async get() { return this.data; } };
   await savePreferences(storage, input);
   assert.ok(!JSON.stringify(storage.data).includes(testToken));
+  assert.ok(!JSON.stringify(storage.data).includes("private filter phrase"));
   assert.deepEqual(await loadPreferences(storage), clean);
   await savePreferences(storage, { ...input, rememberChannel: true });
   assert.equal((await loadPreferences(storage)).channelId, channelId);

@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { readFile } from "node:fs/promises";
-import { channelId, authorId, testToken, message, jsonResponse, nextTurn } from "./helpers.js";
+import { channelId, authorId, testToken, message, datedMessage, jsonResponse, nextTurn } from "./helpers.js";
+import { compileFilters } from "../extension/core/filters.js";
 
 class Element {
   constructor(id = "", source = "") {
@@ -36,10 +37,13 @@ class Element {
   focus() {}
 }
 
-async function createPanel(context, initial = {}, scenario = "normal") {
+async function createPanel(context, initial = {}, scenario = "normal", messages = [message(1)]) {
   const html = await readFile(new URL("../extension/panel.html", import.meta.url), "utf8");
   const elements = Object.fromEntries([...html.matchAll(/<[^>]+\bid="([^"]+)"[^>]*>/g)]
     .map(match => [match[1], new Element(match[1], match[0])]));
+  for (const match of html.matchAll(/<select\b[^>]*id="([^"]+)"[^>]*>([\s\S]*?)<\/select>/g)) {
+    elements[match[1]].value = /<option\b[^>]*value="([^"]*)"/.exec(match[2])?.[1] ?? "";
+  }
   const values = structuredClone(initial);
   const changes = [];
   const requests = [];
@@ -87,7 +91,7 @@ async function createPanel(context, initial = {}, scenario = "normal") {
       if (path === "/api/v10/users/@me") return jsonResponse({ id: authorId });
       if (path === `/api/v10/channels/${channelId}`) return jsonResponse({ id: channelId, type: 1 });
       if (options.method === "DELETE") return jsonResponse(null, 204);
-      return jsonResponse(new URL(url).searchParams.has("before") ? [] : [message(1)]);
+      return jsonResponse(new URL(url).searchParams.has("before") ? [] : messages);
     }
   };
   for (const [key, value] of Object.entries(globals)) {
@@ -216,4 +220,113 @@ test("failed credential storage leaves the token in memory and makes no API requ
   assert.equal(panel.elements.tokenInput.value, testToken);
   assert.equal(panel.elements.formError.hidden, false);
   assert.deepEqual(panel.requests, []);
+});
+
+test("filters start off, ignore stored enable flags, and reveal only relevant enabled fields", async context => {
+  const panel = await createPanel(context, { wiperPreferences: { dateEnabled: true, wordEnabled: true, wordQuery: "private phrase" } });
+  const elements = panel.elements;
+  assert.equal(elements.dateFilterInput.checked, false);
+  assert.equal(elements.wordFilterInput.checked, false);
+  assert.equal(elements.dateFilterFields.hidden, true);
+  assert.equal(elements.wordFilterFields.hidden, true);
+  assert.equal(elements.dateFromInput.disabled, true);
+  assert.equal(elements.wordQueryInput.disabled, true);
+  assert.equal(elements.filterModeLabel.textContent, "Off");
+  elements.dateFilterInput.checked = true;
+  await elements.dateFilterInput.emit("change");
+  assert.equal(elements.dateFilterFields.hidden, false);
+  assert.equal(elements.dateToInput.disabled, true);
+  elements.dateModeInput.value = "during";
+  await elements.dateModeInput.emit("change");
+  assert.equal(elements.dateEndField.hidden, false);
+  assert.equal(elements.dateToInput.disabled, false);
+  assert.equal(elements.dateToInput.required, true);
+  elements.wordFilterInput.checked = true;
+  await elements.wordFilterInput.emit("change");
+  assert.equal(elements.wordQueryInput.disabled, false);
+  assert.equal(elements.filterModeLabel.textContent, "2 active");
+  elements.dateFilterInput.checked = false;
+  await elements.dateFilterInput.emit("change");
+  assert.equal(elements.dateFilterFields.hidden, true);
+  assert.equal(elements.dateFromInput.required, false);
+  assert.deepEqual(panel.requests, []);
+});
+
+test("panel applies both filters, locks the selection, and confirms only matching IDs", async context => {
+  const options = { dateEnabled: true, dateMode: "during", dateFrom: "2026-10-02", dateTo: "2026-10-04" };
+  const dates = compileFilters(options);
+  const eligible = datedMessage(dates.startTime + 1000, "PRIVATE PHRASE");
+  const messages = [datedMessage(dates.endTime + 1000, "private phrase"), datedMessage(dates.startTime + 2000, "other text"), eligible];
+  const panel = await createPanel(context, {}, "normal", messages);
+  const elements = panel.elements;
+  elements.tokenInput.value = testToken;
+  elements.riskInput.checked = true;
+  elements.dateFilterInput.checked = true;
+  elements.dateModeInput.value = options.dateMode;
+  elements.dateFromInput.value = options.dateFrom;
+  elements.dateToInput.value = options.dateTo;
+  elements.wordFilterInput.checked = true;
+  elements.wordModeInput.value = "containing";
+  elements.wordQueryInput.value = "private phrase";
+  const preview = elements.configForm.emit("submit");
+  await panel.until(() => elements.statusBadge.dataset.state === "ready" && !elements.startButton.disabled);
+  await preview;
+  assert.equal(elements.matchedCount.textContent, "1");
+  assert.equal(elements.filteredDetail.textContent, "2 own messages excluded by filters.");
+  for (const id of ["dateFilterInput", "dateModeInput", "dateFromInput", "dateToInput", "wordFilterInput", "wordModeInput", "wordQueryInput"]) assert.equal(elements[id].disabled, true);
+  assert.ok(!JSON.stringify(panel.values).includes("private phrase"));
+  assert.ok(!elements.logList.textContent.includes("PRIVATE PHRASE"));
+  await elements.startButton.emit("click");
+  assert.match(elements.confirmFilters.textContent, /during 2026-10-02 through 2026-10-04/);
+  assert.match(elements.confirmFilters.textContent, /containing/);
+  assert.match(elements.confirmFilters.textContent, /private phrase/);
+  assert.equal(panel.requests.some(request => request.method === "DELETE"), false);
+  elements.confirmationInput.value = channelId;
+  elements.permanentInput.checked = true;
+  const deleting = elements.confirmForm.emit("submit");
+  await panel.until(() => elements.statusBadge.dataset.state === "complete" && !elements.previewButton.disabled);
+  await deleting;
+  assert.deepEqual(panel.requests.filter(request => request.method === "DELETE").map(request => request.path.split("/").at(-1)), [eligible.id]);
+  assert.equal(elements.wordQueryInput.disabled, false);
+});
+
+test("invalid filter inputs make no API calls or credential writes", async context => {
+  const panel = await createPanel(context);
+  const elements = panel.elements;
+  elements.tokenInput.value = testToken;
+  elements.riskInput.checked = true;
+  elements.rememberTokenInput.checked = true;
+  elements.wordFilterInput.checked = true;
+  elements.wordQueryInput.value = "  ";
+  await elements.configForm.emit("submit");
+  assert.match(elements.formError.textContent, /word or phrase/);
+  assert.equal("wiperSavedToken" in panel.values, false);
+  assert.deepEqual(panel.requests, []);
+  elements.tokenInput.value = testToken;
+  elements.wordFilterInput.checked = false;
+  elements.dateFilterInput.checked = true;
+  elements.dateModeInput.value = "during";
+  elements.dateFromInput.value = "2026-10-04";
+  elements.dateToInput.value = "2026-10-02";
+  await elements.configForm.emit("submit");
+  assert.match(elements.formError.textContent, /on or after/);
+  assert.deepEqual(panel.requests, []);
+});
+
+test("Excluding with no matching candidates cannot open deletion confirmation", async context => {
+  const panel = await createPanel(context);
+  const elements = panel.elements;
+  elements.tokenInput.value = testToken;
+  elements.riskInput.checked = true;
+  elements.wordFilterInput.checked = true;
+  elements.wordModeInput.value = "excluding";
+  elements.wordQueryInput.value = "must not be retained";
+  const preview = elements.configForm.emit("submit");
+  await panel.until(() => elements.statusBadge.dataset.state === "complete" && !elements.previewButton.disabled);
+  await preview;
+  assert.equal(elements.matchedCount.textContent, "0");
+  assert.equal(elements.startButton.disabled, true);
+  await elements.startButton.emit("click");
+  assert.equal(elements.confirmDialog.open, false);
+  assert.equal(panel.requests.some(request => request.method === "DELETE"), false);
 });

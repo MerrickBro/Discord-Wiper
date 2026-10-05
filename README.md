@@ -20,16 +20,34 @@ Firefox and the Discord desktop application are not supported by this package. T
 
 1. Enter your own authorization token. It is masked by default. Optionally check **Remember token on this device** to restore it on later visits. This stores it in this browser's extension-local storage without encryption by the extension; use a trusted device. Saving never starts a scan or deletion automatically. This extension does not extract Discord's token, inspect its internal application modules, or collect your login details. Never share a real token in issues, chats, or screenshots.
 2. Enter the channel or DM ID, or choose **Current** while that conversation is open. To copy IDs manually, enable Discord's **Developer Mode**, then use the conversation's **Copy Channel ID** command. The final numeric component of a Discord conversation URL is also its channel ID.
-3. Choose **Balanced** (**1,000–2,000 ms**) or **Faster** (**500–750 ms**), or enter custom delays from **250–60,000 ms**. Equal values give a fixed delay. Existing delay preferences are preserved. Discord cooldowns always take precedence; a `429` also temporarily increases request pacing. Actual throughput depends on API response times and Discord's limits.
-4. Read and acknowledge the account/deletion warning, then choose **Preview**. This verifies the token's author ID using `/users/@me`, verifies the selected channel, and scans accessible history without deleting anything.
-5. Review the eligible count and account ID. Choose **Start**, type the exact channel ID, and explicitly confirm permanent deletion.
-6. Use **Pause / Resume** to control the next request. **Stop** aborts waits and active fetches and discards the preview. A remembered token is kept and restored in the masked input; memory-only tokens are cleared. **Forget** removes the saved copy, clears the current input, and stops this panel's session. A request already sent to Discord may still complete on the server.
+3. Optionally expand **Filters** and enable a date filter, a word filter, or both. Both start off on a new panel or reload; filter values are not saved. See the matching rules below.
+4. Choose **Balanced** (**1,000–2,000 ms**) or **Faster** (**500–750 ms**), or enter custom delays from **250–60,000 ms**. Equal values give a fixed delay. Existing delay preferences are preserved. Discord cooldowns always take precedence; a `429` also temporarily increases request pacing. Actual throughput depends on API response times and Discord's limits.
+5. Read and acknowledge the account/deletion warning, then choose **Preview**. This verifies the token's author ID using `/users/@me`, verifies the selected channel, and scans accessible history without deleting anything.
+6. Review the eligible count, account ID, active filter summary, and number of own messages excluded by filters. Choose **Start**, review the frozen filter settings, type the exact channel ID, and explicitly confirm permanent deletion.
+7. Use **Pause / Resume** to control the next request. **Stop** aborts waits and active fetches and discards the preview. A remembered token is kept and restored in the masked input; memory-only tokens are cleared. **Forget** removes the saved copy, clears the current input, and stops this panel's session. A request already sent to Discord may still complete on the server.
 
 Hiding the panel or switching away from its tab pauses active work. Reopening it never resumes deletion automatically. Closing/reloading the tab clears the active session but preserves an opted-in saved token. Every new run still needs a new preview and deletion confirmation. A `401` removes the rejected saved token if it still matches this run's saved value; it does not erase a newer replacement saved in another panel. If storage removal fails, the panel shows a warning and asks you to use Forget.
 
 Unchecking **Remember token** removes the saved copy while leaving the current input available in memory. A replacement token is saved when you check Remember or create a new preview. Other open panels may still hold a previously entered token in memory; close them or use Stop/Forget there to end their sessions.
 
-The preview is a frozen list of eligible message IDs. Messages posted after the preview are excluded; create a fresh preview to include them. A preview with no eligible messages clears its active client token. Large histories take time because the extension reads all accessible channel messages in pages of 100, including messages from other authors.
+The preview is a frozen list of eligible message IDs. Messages posted after the preview are excluded; create a fresh preview to include them. Filter matches are evaluated during preview; edits to message text afterward do not change the frozen list. A preview with no eligible messages clears its active client token. Large histories take time because the extension reads all accessible channel messages in pages of 100, including messages from other authors. A page without filter matches does not end the scan.
+
+## Optional filters
+
+| Filter | Eligible messages |
+| --- | --- |
+| Date: **Before** | Created before the start of the selected day; that day is excluded |
+| Date: **After** | Created after the selected day finishes; that day is excluded |
+| Date: **During** | Created on any day in the From/Through range, including both selected days |
+| Date: **Except** | Created outside that inclusive date range; messages inside it are protected |
+| Words: **Containing** | Message text includes the entered word or phrase |
+| Words: **Excluding** | Message text does not include the entered word or phrase |
+
+Dates use the message ID's immutable creation timestamp and the device's local timezone at preview time. The timezone appears in the preview and confirmation. Date ranges include complete calendar days, including daylight-saving changes; choose the same From and Through date for a single day. Empty, invalid, and reversed enabled ranges are rejected before any API request.
+
+Words use case-insensitive literal substring matching, so `cat` also matches `cats`. Leading/trailing whitespace is trimmed; embedded spaces and punctuation are literal. There are no regular expressions, comma-separated lists, or attachment/embed searches. Empty message text (such as an attachment-only message) passes Excluding, but not Containing. Missing or malformed text stops an enabled word-filter scan rather than offering a partial preview. Enter one word or phrase of up to 256 characters.
+
+When both filters are enabled, a message must match **both**, as well as the existing verified-owner/type checks. Filter controls lock during scanning, while a preview awaits confirmation, and during deletion. Use Stop and create a new preview to change them. Hiding/reopening the existing panel preserves its current filter values; a new panel or page reload resets them to off. Dates and the word/phrase stay only in this panel's memory; they are not synced, logged, or stored in extension preferences.
 
 ## Privacy and permissions
 
@@ -66,9 +84,9 @@ npm run check
 npm run package
 ```
 
-The package command creates `dist/merrick-discord-wiper-0.2.0.zip`. The ZIP contains the ready-to-load extension, this README, and the architecture/privacy notes. It excludes tests, development artifacts, and any session state.
+The package command creates `dist/merrick-discord-wiper-0.3.0.zip`. The ZIP contains the ready-to-load extension, this README, and the architecture/privacy notes. It excludes tests, development artifacts, and any session state.
 
-`npm test` runs mocked API tests for pagination, author filtering, confirmation, rate-limit responses, adaptive pacing, global waits, error handling, stop/pause behavior, token storage, settings sanitization, and session exclusion. Panel-flow tests run the real panel module with mocked DOM/storage/clock/API surfaces; they cover startup restoration, explicit opt-in, completed deletion, Stop, Forget, rejection cleanup, and opt-out. No real Discord account or messages are used. `npm run check` validates JavaScript syntax, local imports/resources, permissions, and the release file set.
+`npm test` runs mocked API tests for pagination, author/date/word filtering, whole-day and daylight-saving boundaries, frozen filter options, confirmation, rate-limit responses, adaptive pacing, global waits, error handling, stop/pause behavior, token storage, settings sanitization, and session exclusion. Panel-flow tests run the real panel module with mocked DOM/storage/clock/API surfaces; they cover startup restoration, explicit opt-in, completed deletion, Stop, Forget, rejection cleanup, opt-out, default-off filters, locked controls, filter confirmation, and validation without requests. No real Discord account or messages are used. `npm run check` validates JavaScript syntax, local imports/resources, permissions, and the release file set.
 
 An optional Chromium smoke test is available with Playwright installed and its Chromium browser downloaded:
 
@@ -95,6 +113,7 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the state machine and modul
 - [Discord self-bot policy](https://support.discord.com/hc/en-us/articles/115002192352-Automated-User-Accounts-Self-Bots)
 - [Discord rate limits](https://docs.discord.com/developers/topics/rate-limits)
 - [Discord message resource](https://docs.discord.com/developers/resources/message)
+- [Discord snowflake timestamps](https://docs.discord.com/developers/reference#snowflakes)
 - [Chrome cross-origin extension requests](https://developer.chrome.com/docs/extensions/develop/concepts/network-requests)
 - [Chrome extension storage](https://developer.chrome.com/docs/extensions/reference/api/storage)
 - [Undiscord](https://github.com/victornpb/undiscord)

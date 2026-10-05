@@ -40,6 +40,25 @@
           <button id="currentChannelButton" class="inlineButton" type="button">Current</button>
         </div>
       </div>
+      <details class="filterSection" id="filterSection">
+        <summary>Filters <span id="filterModeLabel" class="fieldTag">Off</span></summary>
+        <p class="hint filterHint">Optional · off on a new panel or reload. If both are enabled, both must match.</p>
+        <label class="checkLine filterToggle"><input id="dateFilterInput" type="checkbox" aria-controls="dateFilterFields">Date filter</label>
+        <div id="dateFilterFields" hidden>
+          <div class="field"><label for="dateModeInput">Match dates</label><select id="dateModeInput" disabled><option value="before">Before</option><option value="after">After</option><option value="during">During</option><option value="except">Except</option></select></div>
+          <div class="dateGrid">
+            <div class="field"><label for="dateFromInput" id="dateFromLabel">Date</label><input id="dateFromInput" type="date" min="0001-01-01" max="9999-12-31" aria-describedby="dateFilterHint" disabled></div>
+            <div class="field" id="dateEndField" hidden><label for="dateToInput">Through (inclusive)</label><input id="dateToInput" type="date" min="0001-01-01" max="9999-12-31" aria-describedby="dateFilterHint" disabled></div>
+          </div>
+          <p class="hint filterHint" id="dateFilterHint">Before and After exclude the selected day. During and Except use an inclusive range of whole days in your device's timezone.</p>
+        </div>
+        <label class="checkLine filterToggle"><input id="wordFilterInput" type="checkbox" aria-controls="wordFilterFields">Word filter</label>
+        <div id="wordFilterFields" hidden>
+          <div class="field"><label for="wordModeInput">Match text</label><select id="wordModeInput" disabled><option value="containing">Containing</option><option value="excluding">Excluding</option></select></div>
+          <div class="field"><label for="wordQueryInput">Word or phrase</label><input id="wordQueryInput" type="text" maxlength="256" placeholder="Enter literal text" spellcheck="false" aria-describedby="wordFilterHint" disabled></div>
+          <p class="hint filterHint" id="wordFilterHint">Case-insensitive substring match in message text, not attachment names or embeds. No regular expressions. Matching is frozen at preview time.</p>
+        </div>
+      </details>
       <div class="field"><label for="speedPresetInput">Pace</label><select id="speedPresetInput"><option value="balanced">Balanced · 1,000–2,000 ms</option><option value="faster">Faster · 500–750 ms</option><option value="custom">Custom</option></select></div>
       <div class="delayGrid">
         <div class="field"><label for="minDelayInput">Min delay <span>(ms)</span></label><input id="minDelayInput" type="number" min="250" max="60000" step="1" value="1000" required></div>
@@ -62,18 +81,21 @@
       <div class="stats"><div><span>Scanned</span><strong id="scannedCount">0</strong></div><div><span>Eligible</span><strong id="matchedCount">0</strong></div><div><span>Deleted</span><strong id="deletedCount">0</strong></div></div>
       <progress id="progressBar" max="1" value="0" aria-label="Deletion progress" hidden></progress>
       <p id="accountDetail" class="accountDetail" hidden></p>
+      <p id="filterDetail" class="hint" hidden></p>
+      <p id="filteredDetail" class="hint" hidden></p>
     </section>
     <section class="logSection" aria-labelledby="logTitle">
       <div class="sectionHeading"><h2 id="logTitle">Activity</h2><button id="clearLogsButton" class="textButton" type="button">Clear log</button></div>
       <ol id="logList" role="log" aria-label="Activity log" aria-live="off"></ol>
     </section>
   </main>
-  <footer><span>Only your messages · No telemetry</span><span class="version">v0.2.0</span></footer>
+  <footer><span>Only your messages · No telemetry</span><span class="version">v0.3.0</span></footer>
   <dialog id="confirmDialog" aria-labelledby="confirmTitle" aria-describedby="confirmDescription">
     <form id="confirmForm" autocomplete="off">
       <span class="eyebrow dangerText">Permanent deletion</span>
       <h2 id="confirmTitle">Delete this preview?</h2>
       <p id="confirmDescription"></p>
+      <p id="confirmFilters" class="hint"></p>
       <dl class="confirmDetails"><dt>Channel</dt><dd id="confirmChannel"></dd><dt>Account</dt><dd id="confirmAccount"></dd></dl>
       <div class="field"><label for="confirmationInput">Type the channel ID to confirm</label><input id="confirmationInput" type="text" inputmode="numeric" spellcheck="false" maxlength="20"></div>
       <label class="checkLine"><input id="permanentInput" type="checkbox">Permanently delete these messages.</label>

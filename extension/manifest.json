@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Merrick's Discord Wiper",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Preview and delete your own Discord messages with explicit confirmation, pause controls, and rate-limit cooldowns.",
   "minimum_chrome_version": "114",
   "permissions": ["storage"],

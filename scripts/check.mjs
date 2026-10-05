@@ -55,5 +55,12 @@ assert.ok(html.includes('id="confirmationInput"'));
 assert.ok(html.includes('id="rememberTokenInput"'));
 assert.ok(html.includes('id="forgetTokenButton"'));
 assert.ok(html.includes('id="speedPresetInput"'));
+for (const id of ["dateFilterInput", "dateModeInput", "dateFromInput", "dateToInput", "wordFilterInput", "wordModeInput", "wordQueryInput", "confirmFilters"]) {
+  assert.ok(html.includes(`id="${id}"`), `Missing filter UI: ${id}`);
+}
+for (const id of ["dateFilterInput", "wordFilterInput"]) {
+  const input = new RegExp(`<input\\b[^>]*id="${id}"[^>]*>`).exec(html)?.[0];
+  assert.ok(input && !/\bchecked\b/.test(input), `${id} must be off by default`);
+}
 assert.ok(html.includes(`v${manifest.version}`));
 console.log(`Validated Manifest V3, ${files.length} extension resources, JavaScript syntax, local imports, and permission/CSP constraints.`);

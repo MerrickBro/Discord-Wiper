@@ -15,6 +15,11 @@ export function message(offset, author = authorId, type = 0) {
   return { id: String(1450000000000000000n + BigInt(offset)), channel_id: channelId, author: { id: author }, type, content: "This content must not be retained." };
 }
 
+export function datedMessage(timestamp, content = "", author = authorId, type = 0) {
+  const milliseconds = typeof timestamp === "number" ? timestamp : Date.parse(timestamp);
+  return { ...message(1, author, type), id: String(((BigInt(milliseconds) - 1420070400000n) << 22n) + 1n), content };
+}
+
 export function createHarness(handler, extra = {}) {
   const requests = [];
   const sleeps = [];

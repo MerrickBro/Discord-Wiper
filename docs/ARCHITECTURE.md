@@ -14,6 +14,7 @@
 | `core/preferences.js` | Explicit allowlist for persisted settings | None |
 | `core/tokenStore.js` | Trusted local credential access; queued saves/removal; conditional rejection cleanup | Opted-in saved token only |
 | `core/pacing.js` | Balanced/faster presets and allowed delay range | None |
+| `core/filters.js` | Strict optional filter validation; local calendar bounds; immutable snowflake dates; literal text matching | None |
 
 The iframe shares an extension origin with other instances of this extension, not Discord. Only its bundled scripts execute there. CSP restricts connections to `https://discord.com` and forbids remote/inline scripts, objects, form navigation, and unrelated framing origins. The parent bridge validates both origin and source, plus a per-frame ID, and carries only channel IDs and visibility messages. There is no network proxy or deletion command exposed to Discord's page.
 
@@ -58,7 +59,11 @@ const previewTask = wiper.preview({
   token: tokenInput.value,
   channelId: channelInput.value,
   minDelay: 1000,
-  maxDelay: 2000
+  maxDelay: 2000,
+  filters: {
+    dateEnabled: true, dateMode: "during", dateFrom: "2026-10-01", dateTo: "2026-10-04",
+    wordEnabled: true, wordMode: "excluding", wordQuery: "keep this"
+  }
 });
 tokenInput.value = "";
 await previewTask;
@@ -67,7 +72,7 @@ await previewTask;
 await wiper.deletePreview({ channelId: confirmedChannelId, acceptRisk: true });
 ```
 
-`preview()` and `deletePreview()` return a Promise of a sanitized state snapshot, and reject on failure/abort. `state` returns a copy of counts, verified IDs, phase, pause state, and wait/error details. It never returns tokens, message content, or candidate IDs. `pause()` / `resume()` are synchronous; `stop()` resolves after active work settles. Only a full successful preview is eligible for deletion.
+`preview()` and `deletePreview()` return a Promise of a sanitized state snapshot, and reject on failure/abort. `state` returns a copy of counts, verified IDs, phase, pause state, wait/error details, a filters-active flag, and a filter summary without the search phrase. `filtered` counts otherwise-eligible own messages excluded by filters; `skipped` remains the unsupported-own-type count. State never returns tokens, message content, the search phrase, or candidate IDs. `pause()` / `resume()` are synchronous; `stop()` resolves after active work settles. Only a full successful preview is eligible for deletion.
 
 The panel separately enforces the risk acknowledgement and Web Lock. Integrations that reuse the core must supply equivalent UI confirmation, safe credential entry, and session exclusion. Never run deletion on an untrusted page's behalf.
 
@@ -77,11 +82,21 @@ The panel separately enforces the risk acknowledgement and Web Lock. Integration
 2. GET `/channels/{channelId}` validates the target.
 3. GET `/channels/{channelId}/messages?limit=100` reads the newest page.
 4. Validate each ID, channel, author ID, page uniqueness, and backward progress.
-5. Keep only known-deletable messages from the verified author, excluding webhook messages. Retain IDs only.
+5. Keep only known-deletable messages from the verified author, excluding webhook messages, then apply the enabled date and word constraints with AND. Retain IDs only.
 6. Repeat with `before={oldestId}`, using BigInt comparison to avoid snowflake precision loss. An empty page ends the scan. Pages with no own messages do not end it.
 7. After confirmation, revalidate `/users/@me` and DELETE each frozen candidate individually.
 
 There is a 100,000-candidate memory cap. Exceeding it clears the preview and stops without offering partial deletion. Messages arriving after the preview are not candidates. A deleted cursor still works as a snowflake boundary, and deletion never offsets pagination because all scanning precedes it.
+
+## Filter contract
+
+Filters are omitted/off by default. `preview()` synchronously validates and copies enabled options into a frozen private object before any API request. `dateEnabled` and `wordEnabled` must be booleans when supplied; invalid modes, missing dates, impossible/reversed date ranges, and empty/oversized phrases are rejected. Disabled fields are ignored. Caller mutations cannot alter an active scan's options.
+
+Date modes are `before`, `after`, `during`, and `except`. Before matches timestamps less than the selected day's local start; After matches timestamps at or after the next local day's start. During uses `[fromDayStart, dayAfterThroughStart)`, and Except is its complement. Calendar arithmetic, not a fixed 24-hour duration, handles daylight-saving transitions. Timestamps come from `(BigInt(message.id) >> 22n) + 1420070400000n`, with the 64-bit range checked when dates are used.
+
+Word modes are `containing` and `excluding`. A trimmed phrase of 1–256 characters uses lowercase literal substring matching on `message.content` only. An empty string is valid content; missing/non-string content with an enabled word filter is not, and discards the entire partial preview. Attachment names and embed fields do not participate. No content or phrase is logged, persisted, or returned in state.
+
+The panel owns the input values and includes the frozen phrase in explicit deletion confirmation using `textContent`. Inputs lock throughout a session. A new panel or reload starts both filters off; hiding the same panel leaves its current values intact. Filter values are excluded from preferences. Deletion consumes only the original preview IDs: it does not re-read edited message text or expand the selection after confirmation. A fresh preview is required to evaluate subsequent edits.
 
 ## HTTP policy
 
@@ -109,4 +124,4 @@ Balanced is 1,000–2,000 ms; Faster is 500–750 ms; custom values span 250–6
 
 ## Verification
 
-Automated tests use mocked Discord responses and fictional IDs/tokens. Panel-flow tests execute the actual panel module using small mocked DOM/storage/clock surfaces, covering saved-token lifecycle through real engine preview/deletion. They do not verify browser rendering or Chrome extension security boundaries. The separate browser smoke test loads the real Manifest V3 package, supplies an intercepted Discord page/API, and exercises the extension-origin iframe and cross-tab Web Lock. Production user-token compatibility and Discord enforcement are outside what mocked tests can guarantee.
+Automated tests use mocked Discord responses and fictional IDs/tokens. Panel-flow tests execute the actual panel module using small mocked DOM/storage/clock surfaces, covering saved-token lifecycle and date/word filtering through real engine preview/deletion. Filter tests additionally check every boundary mode, daylight-saving changes, literal text matching, and fail-closed validation. They do not verify browser rendering or Chrome extension security boundaries. The separate browser smoke test loads the real Manifest V3 package, supplies an intercepted Discord page/API, and exercises the extension-origin iframe and cross-tab Web Lock. Production user-token compatibility and Discord enforcement are outside what mocked tests can guarantee.

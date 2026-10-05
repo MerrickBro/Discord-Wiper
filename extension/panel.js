@@ -3,6 +3,7 @@ import { SessionLease } from "./core/sessionLease.js";
 import { loadPreferences, savePreferences } from "./core/preferences.js";
 import { TokenStore, savedTokenKey, cleanSavedToken } from "./core/tokenStore.js";
 import { pacePresets, paceFromDelays } from "./core/pacing.js";
+import { compileFilters } from "./core/filters.js";
 import { discordOrigins, isSnowflake, safeErrorMessage, validateChannelId, validateDelays, validateToken, WiperError } from "./core/validation.js";
 
 const elements = Object.fromEntries([...document.querySelectorAll("[id]")].map(element => [element.id, element]));
@@ -21,6 +22,33 @@ let credentialBusy = false;
 let rememberedToken = "";
 let savedTokenPresent = false;
 let sessionSavedToken = "";
+let previewWordQuery = "";
+
+function filterValues() {
+  return { dateEnabled: elements.dateFilterInput.checked, dateMode: elements.dateModeInput.value,
+    dateFrom: elements.dateFromInput.value, dateTo: elements.dateToInput.value,
+    wordEnabled: elements.wordFilterInput.checked, wordMode: elements.wordModeInput.value, wordQuery: elements.wordQueryInput.value };
+}
+
+function renderFilters(locked) {
+  const dateEnabled = elements.dateFilterInput.checked;
+  const wordEnabled = elements.wordFilterInput.checked;
+  const range = ["during", "except"].includes(elements.dateModeInput.value);
+  elements.dateFilterFields.hidden = !dateEnabled;
+  elements.wordFilterFields.hidden = !wordEnabled;
+  elements.dateEndField.hidden = !range;
+  elements.dateFromLabel.textContent = range ? "From (inclusive)" : "Date";
+  elements.dateFilterInput.disabled = elements.wordFilterInput.disabled = locked || !preferencesReady;
+  for (const name of ["dateModeInput", "dateFromInput", "dateToInput"]) {
+    elements[name].disabled = locked || !preferencesReady || !dateEnabled || (name === "dateToInput" && !range);
+  }
+  for (const name of ["wordModeInput", "wordQueryInput"]) elements[name].disabled = locked || !preferencesReady || !wordEnabled;
+  elements.dateFromInput.required = dateEnabled;
+  elements.dateToInput.required = dateEnabled && range;
+  elements.wordQueryInput.required = wordEnabled;
+  const activeCount = Number(dateEnabled) + Number(wordEnabled);
+  elements.filterModeLabel.textContent = activeCount ? `${activeCount} active` : "Off";
+}
 
 function appendLog(message, level = "info") {
   const followingBottom = elements.logList.scrollHeight - elements.logList.clientHeight - elements.logList.scrollTop < 24;
@@ -73,6 +101,7 @@ function renderState(state) {
   updateStatus(state);
   const locked = acquiring || stopping || credentialBusy || ["scanning", "ready", "deleting", "stopping"].includes(state.phase);
   const active = ["scanning", "deleting"].includes(state.phase);
+  renderFilters(locked);
   for (const name of ["tokenInput", "channelInput", "minDelayInput", "maxDelayInput", "rememberChannelInput", "rememberTokenInput", "speedPresetInput", "riskInput", "showTokenButton", "currentChannelButton"]) {
     elements[name].disabled = locked || !preferencesReady;
   }
@@ -96,6 +125,10 @@ function renderState(state) {
   }
   elements.accountDetail.hidden = !state.authorId;
   elements.accountDetail.textContent = `Account ${state.authorId} · ${state.channelKind || "Verifying channel"}`;
+  elements.filterDetail.hidden = !state.filtersActive;
+  elements.filterDetail.textContent = state.filterSummary;
+  elements.filteredDetail.hidden = !state.filtered;
+  elements.filteredDetail.textContent = `${state.filtered.toLocaleString()} own messages excluded by filters.`;
   if (!active || !state.waitUntil) {
     clearInterval(waitTimer);
     waitTimer = null;
@@ -173,7 +206,8 @@ elements.configForm.addEventListener("submit", async event => {
   try {
     if (!elements.riskInput.checked) throw new WiperError("Acknowledge the account and permanent deletion risks before making API requests.");
     options = { token: validateToken(elements.tokenInput.value || (elements.rememberTokenInput.checked ? rememberedToken : "")), channelId: validateChannelId(elements.channelInput.value),
-      ...validateDelays(Number(elements.minDelayInput.value), Number(elements.maxDelayInput.value)) };
+      ...validateDelays(Number(elements.minDelayInput.value), Number(elements.maxDelayInput.value)), filters: filterValues() };
+    compileFilters(options.filters);
     acquiring = true;
     renderState(wiper.state);
     await lease.acquire();
@@ -189,6 +223,7 @@ elements.configForm.addEventListener("submit", async event => {
     clearTokenField();
     acquiring = false;
     const task = wiper.preview(options);
+    previewWordQuery = options.filters.wordEnabled ? options.filters.wordQuery.trim() : "";
     options.token = "";
     await task;
   } catch (error) {
@@ -203,6 +238,7 @@ elements.configForm.addEventListener("submit", async event => {
       acquiring = true;
       renderState(wiper.state);
       sessionSavedToken = "";
+      previewWordQuery = "";
       await lease.release();
       restoreRememberedToken();
     }
@@ -213,7 +249,8 @@ elements.configForm.addEventListener("submit", async event => {
 
 elements.startButton.addEventListener("click", () => {
   if (wiper.state.phase !== "ready") return;
-  elements.confirmDescription.textContent = `This permanently deletes ${wiper.state.matched.toLocaleString()} messages from your verified account in this channel. Messages sent after the preview are excluded.`;
+  elements.confirmDescription.textContent = `This permanently deletes ${wiper.state.matched.toLocaleString()} messages from your verified account in this channel. Messages sent after the preview are excluded. Filter matches are frozen at preview time; later edits do not change this list.`;
+  elements.confirmFilters.textContent = `${wiper.state.filterSummary}${previewWordQuery ? ` · Word / phrase: “${previewWordQuery}”` : ""}`;
   elements.confirmChannel.textContent = wiper.state.channelId;
   elements.confirmAccount.textContent = wiper.state.authorId;
   elements.confirmationInput.value = "";
@@ -250,6 +287,7 @@ elements.confirmForm.addEventListener("submit", async event => {
     elements.confirmationInput.value = "";
     elements.permanentInput.checked = false;
     sessionSavedToken = "";
+    previewWordQuery = "";
     await lease.release();
     restoreRememberedToken();
     acquiring = false;
@@ -267,6 +305,7 @@ elements.stopButton.addEventListener("click", async () => {
   renderState(wiper.state);
   await wiper.stop();
   sessionSavedToken = "";
+  previewWordQuery = "";
   await lease.release();
   stopping = false;
   restoreRememberedToken();
@@ -305,6 +344,7 @@ elements.forgetTokenButton.addEventListener("click", async () => {
   stopping = true;
   rememberedToken = "";
   sessionSavedToken = "";
+  previewWordQuery = "";
   elements.rememberTokenInput.checked = false;
   clearTokenField();
   elements.confirmDialog.close();
@@ -332,6 +372,9 @@ elements.speedPresetInput.addEventListener("change", () => {
   persistPreferences();
 });
 elements.tokenInput.addEventListener("input", () => renderState(wiper.state));
+for (const name of ["dateFilterInput", "dateModeInput", "wordFilterInput", "wordModeInput"]) {
+  elements[name].addEventListener("change", () => renderState(wiper.state));
+}
 elements.showTokenButton.addEventListener("click", () => {
   const showing = elements.tokenInput.type === "password";
   elements.tokenInput.type = showing ? "text" : "password";
@@ -384,6 +427,7 @@ window.addEventListener("pagehide", () => {
   clearTokenField();
   rememberedToken = "";
   sessionSavedToken = "";
+  previewWordQuery = "";
   wiper.stop();
   lease.release();
 });

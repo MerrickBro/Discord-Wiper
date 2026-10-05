@@ -38,6 +38,15 @@ const firstPage = [message(9), message(8, otherId), message(7, authorId, { type:
   message(6, authorId, { webhook_id: "523456789012345678" }), message(5)];
 const secondPage = [message(4, authorId, { type: 19 })];
 const candidates = [message(9).id, message(5).id, message(4).id];
+const filterPhrase = "filter phrase";
+function datedMessage(timestamp, content) {
+  const id = String(((BigInt(Date.parse(timestamp)) - 1420070400000n) << 22n) + 1n);
+  return message(1, authorId, { id, content: `${content} · ${privateContent}` });
+}
+const filterMessages = [datedMessage("2026-10-05T12:00:00Z", filterPhrase),
+  datedMessage("2026-10-04T15:00:00Z", "different words"), datedMessage("2026-10-04T12:00:00Z", "FILTER PHRASE"),
+  datedMessage("2026-10-03T12:00:00Z", filterPhrase)];
+const filteredCandidate = filterMessages[2].id;
 
 async function waitForPanel(page) {
   await page.locator("#merrickDiscordWiper").waitFor();
@@ -98,7 +107,7 @@ async function capture(page, name) {
 
 try {
   context = await playwright.chromium.launchPersistentContext(profileDirectory, {
-    channel: "chromium", headless: true, viewport: { width: 1280, height: 900 },
+    channel: "chromium", headless: true, viewport: { width: 1280, height: 900 }, timezoneId: "America/Detroit",
     args: [`--disable-extensions-except=${extensionRoot}`, `--load-extension=${extensionRoot}`, "--disable-background-networking"]
   });
   context.setDefaultTimeout(15000);
@@ -126,6 +135,11 @@ try {
     if (record.method === "GET" && record.path === `/api/v10/channels/${channelId}/messages`) {
       assert.equal(url.searchParams.get("limit"), "100");
       if (scenario === "empty") return reply([]);
+      if (scenario === "filters") {
+        if (!record.before) return reply(filterMessages);
+        assert.equal(record.before, filterMessages.at(-1).id);
+        return reply([]);
+      }
       if (!record.before) return reply(firstPage);
       if (record.before === message(5).id) return reply(secondPage);
       assert.equal(record.before, message(4).id);
@@ -133,6 +147,10 @@ try {
     }
     if (record.method === "DELETE") {
       const id = record.path.split("/").at(-1);
+      if (scenario === "filters") {
+        assert.equal(id, filteredCandidate, "Only the confirmed date-and-word match may be deleted");
+        return reply(null, 204);
+      }
       assert.ok(candidates.includes(id), "Only the verified author's eligible snapshot may be deleted");
       if (id === candidates[0] && !limitedOnce) {
         limitedOnce = true;
@@ -270,6 +288,66 @@ try {
   assert.deepEqual(Object.keys(stored), ["wiperPreferences"]);
   assert.deepEqual(Object.keys(stored.wiperPreferences).sort(), ["channelId", "maxDelay", "minDelay", "rememberChannel", "theme"]);
   await capture(page, "mobile-ready");
+
+  scenario = "filters";
+  assert.equal(await frame.locator("#dateFilterInput").isChecked(), false);
+  assert.equal(await frame.locator("#wordFilterInput").isChecked(), false);
+  await frame.locator("#filterSection summary").click();
+  await frame.locator("#dateFilterInput").check();
+  await frame.locator("#dateModeInput").selectOption("during");
+  await frame.locator("#dateFromInput").fill("2026-10-04");
+  await frame.locator("#dateToInput").fill("2026-10-04");
+  await frame.locator("#wordFilterInput").check();
+  await frame.locator("#wordModeInput").selectOption("containing");
+  await frame.locator("#wordQueryInput").fill(filterPhrase);
+  await configure(frame);
+  await frame.locator("#speedPresetInput").selectOption("faster");
+  const filterRequestStart = requests.length;
+  await frame.locator("#previewButton").click();
+  await waitForState(frame, "ready");
+  assert.equal(await frame.locator("#matchedCount").textContent(), "1");
+  assert.match(await frame.locator("#filteredDetail").textContent(), /3 own messages excluded/);
+  for (const id of ["dateFilterInput", "dateModeInput", "dateFromInput", "dateToInput", "wordFilterInput", "wordModeInput", "wordQueryInput"]) {
+    assert.equal(await frame.locator(`#${id}`).isDisabled(), true);
+  }
+  assert.equal(await frame.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+  await capture(page, "mobile-filter-preview");
+  await frame.locator("#startButton").click();
+  assert.match(await frame.locator("#confirmFilters").textContent(), /during 2026-10-04 through 2026-10-04/);
+  assert.match(await frame.locator("#confirmFilters").textContent(), /America\/Detroit/);
+  assert.match(await frame.locator("#confirmFilters").textContent(), /filter phrase/);
+  await frame.locator("#confirmationInput").fill(channelId);
+  await frame.locator("#permanentInput").check();
+  await frame.locator("#confirmDeleteButton").click();
+  await waitForState(frame, "complete");
+  assert.deepEqual(requests.slice(filterRequestStart).filter(request => request.method === "DELETE").map(request => request.path.split("/").at(-1)), [filteredCandidate]);
+  const filterSettings = await assertPrivateState(frame);
+  assert.ok(!JSON.stringify(filterSettings).includes(filterPhrase));
+  assert.ok(!JSON.stringify(filterSettings).includes("dateEnabled"));
+  await configure(frame);
+  await frame.locator("#dateFromInput").fill("2026-10-05");
+  const invalidFilterCount = requests.length;
+  await frame.locator("#previewButton").click();
+  await frame.locator("#formError").waitFor();
+  assert.match(await frame.locator("#formError").textContent(), /on or after/);
+  assert.equal(requests.length, invalidFilterCount);
+  await frame.locator("#dateFilterInput").uncheck();
+  await frame.locator("#wordQueryInput").fill("no matching phrase exists");
+  await configure(frame);
+  await frame.locator("#previewButton").click();
+  await frame.waitForFunction(() => document.getElementById("statusBadge").dataset.state === "complete" &&
+    !document.getElementById("previewButton").disabled && document.getElementById("matchedCount").textContent === "0");
+  assert.equal(await frame.locator("#startButton").isDisabled(), true);
+  assert.equal(requests.slice(invalidFilterCount).some(request => request.method === "DELETE"), false);
+  const filterReloadCount = requests.length;
+  await page.reload();
+  frame = await waitForPanel(page);
+  assert.equal(await frame.locator("#dateFilterInput").isChecked(), false);
+  assert.equal(await frame.locator("#wordFilterInput").isChecked(), false);
+  assert.equal(await frame.locator("#wordQueryInput").inputValue(), "");
+  assert.equal(requests.length, filterReloadCount);
+  scenario = "normal";
+  console.log("Passed: default-off filters, combined local dates and literal words, locked preview, exact filtered deletion, invalid ranges without requests, zero matches, private settings, and reload reset.");
 
   await frame.locator("#speedPresetInput").selectOption("faster");
   assert.equal(await frame.locator("#minDelayInput").inputValue(), "500");
