@@ -1,6 +1,6 @@
 # Merrick's Discord Wiper
 
-A compact Manifest V3 extension that previews and deletes **your own** Discord messages in a selected channel, thread, or DM. The panel lives inside Discord's web application and follows the Merrick Tools interface: simple fields, blue accents, light/dark themes, and a bounded activity log.
+A compact Manifest V3 extension that previews and deletes **your own** Discord messages in a selected channel, thread, or DM. The panel lives inside Discord's web application and follows the Merrick Tools interface: simple fields, blue accents, light/dark themes, and a bounded activity log. Nothing is injected into Discord on page load; the page bridge is injected only after you click the extension's toolbar icon.
 
 **Automating a normal user account violates Discord's Terms of Service and self-bot policy. Discord may terminate the account. Request delays and rate-limit handling cannot make this activity permitted or guarantee protection against bans. Deletion is permanent.**
 
@@ -12,7 +12,7 @@ This is an independent utility, not an official Discord application. Use only an
 2. Open `chrome://extensions` in Chrome, `edge://extensions` in Edge, or `opera://extensions` in Opera / Opera GX.
 3. Enable **Developer mode**, choose **Load unpacked**, and select the extracted `merrick-discord-wiper` folder containing `manifest.json`. If installing from the repository, select its `extension` folder instead.
 4. Open or reload Discord at `https://discord.com/channels/@me`.
-5. Click **M // DISCORD WIPER** in the bottom-right corner, or the extension's toolbar icon.
+5. Click the extension's toolbar icon while the Discord tab is active. This injects the page bridge for that tab and opens the panel. After activation, **M // DISCORD WIPER** remains available in the bottom-right corner until the page is reloaded or navigated away.
 
 Firefox and the Discord desktop application are not supported by this package. The extension supports Discord's regular, PTB, and Canary web clients; all API requests use the canonical `discord.com` API.
 
@@ -70,7 +70,7 @@ Every enabled filter must match, along with the verified-owner/type checks. Cont
 - **Remember token** explicitly permits a token-only entry in `chrome.storage.local`. Access is restricted to trusted extension contexts before reading or writing credentials. It is not synced by the extension or encrypted by this extension. Forget removes the stored entry; it cannot guarantee physical erasure from browser/device backups or memory.
 - Non-sensitive delay/theme preferences use a separate allowlisted settings entry. The channel ID is saved only if **Remember this channel** is checked; unchecking it removes the saved channel ID. No account IDs, message lists, message bodies, or activity logs are persisted.
 - There is no server, telemetry, analytics, remote script, or Discord login integration. Raw Discord message bodies are read transiently for filtering and never displayed or persisted. Only eligible message IDs remain in memory for the preview, capped at 100,000.
-- Permissions are limited to extension settings storage and the three Discord web origins. The content script mounts/toggles the panel and supplies the current channel ID. It cannot request deletion or receive the token. The service worker only handles the toolbar button and storage access level.
+- Permissions are limited to extension settings storage, user-triggered script injection, active-tab access, and the three Discord web origins required by the supported clients/API flow. No content script is registered to run automatically. The service worker injects `content.js` only after a toolbar click on a supported Discord tab; that script mounts/toggles the panel and supplies the current channel ID. It cannot request deletion or receive the token.
 - A Web Lock allows only one active extension session per browser storage partition, including while a preview awaits confirmation. Different browser profiles, private windows, storage partitions, and unrelated tools are outside this lock.
 
 Memory-only handling reduces exposure; it cannot protect against a compromised browser/device or privileged debugging. JavaScript strings cannot be guaranteed to be physically zeroed in memory. Stop clears the active engine's credential references; opting into remembering intentionally retains a saved token and a masked input for reuse. Forget removes those references in this panel and its stored entry.
@@ -99,7 +99,7 @@ npm run check
 npm run package
 ```
 
-The package command creates `dist/merrick-discord-wiper-0.4.1.zip`. The ZIP contains the ready-to-load extension, this README, and the architecture/privacy notes. It excludes tests, development artifacts, and any session state.
+The package command creates `dist/merrick-discord-wiper-0.4.2.zip`. The ZIP contains the ready-to-load extension, this README, and the architecture/privacy notes. It excludes tests, development artifacts, and any session state.
 
 `npm test` uses fictional tokens and mocked API responses. Coverage includes pagination/ownership, date-window equivalence and request savings, midnight/daylight-saving boundaries, multiple-word and whole-word rules, attachment metadata, late pin checks, timing/cooldowns, confirmation, stop/pause, rate limits, token storage, settings sanitization, and session exclusion. Panel-flow tests run the real panel module with mocked DOM/storage/clock/API surfaces to verify combined filters, locked confirmation, default-off controls, timing, and saved-token behavior. No real Discord account or messages are used. `npm run check` validates syntax, local imports/resources, permissions, and the release file set.
 
@@ -111,13 +111,13 @@ npx playwright install chromium
 npm run test:browser
 ```
 
-It sideloads the actual extension, intercepts every Discord request, uses a fictional token/account, and checks UI, preview/confirmation, rate-limit/pause/resume flow, cross-tab exclusion, and storage. It never contacts a real Discord account.
+It sideloads the actual extension, verifies that Discord pages remain untouched before explicit activation, intercepts every Discord request, uses a fictional token/account, and checks UI, preview/confirmation, rate-limit/pause/resume flow, cross-tab exclusion, and storage. It never contacts a real Discord account.
 
 The GitHub Actions workflow runs the core checks and this browser test against the extracted release ZIP. It also checks Stop, authentication errors, empty history, reload behavior, token persistence/removal, small-screen layout, and the PTB/Canary clients. The workflow saves the installable ZIP and UI screenshots as downloadable artifacts.
 
 ## Update an unpacked installation
 
-Stop any active run, replace the files in your existing unpacked extension folder with the new ZIP's contents, then select **Reload** on the browser's extensions page and reload Discord. Keep the same folder path and extension installation to preserve existing preferences and an opted-in token. Removing the extension clears its local data.
+Stop any active run, replace the files in your existing unpacked extension folder with the new ZIP's contents, then select **Reload** on the browser's extensions page and reload Discord. Click the toolbar icon again to activate the extension for that tab. Keep the same folder path and extension installation to preserve existing preferences and an opted-in token. Removing the extension clears its local data.
 
 ## Architecture
 
