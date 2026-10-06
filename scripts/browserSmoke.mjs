@@ -28,6 +28,7 @@ const unexpectedRequests = [];
 let scenario = "normal";
 let limitedOnce = false;
 let context;
+let extensionWorker;
 
 function message(offset, author = authorId, extra = {}) {
   return { id: String(1450000000000000000n + BigInt(offset)), channel_id: channelId,
@@ -55,10 +56,21 @@ const advancedMessages = [
   message(1, authorId, { content: `cat under blue sky · ${privateContent}`, attachments: [{ filename: "private-photo.png" }] })
 ];
 
+async function activateWiper(page) {
+  const targetUrl = page.url();
+  await extensionWorker.evaluate(async url => {
+    const tabs = await chrome.tabs.query({});
+    const tab = tabs.find(candidate => candidate.url === url);
+    if (!tab?.id) throw new Error("Discord tab was not found");
+    await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ["content.js"] });
+    await chrome.tabs.sendMessage(tab.id, { type: "merrickWiperToggle" });
+  }, targetUrl);
+}
+
 async function waitForPanel(page) {
+  assert.equal(await page.locator("#merrickDiscordWiper").count(), 0, "The extension must stay dormant before activation");
+  await activateWiper(page);
   await page.locator("#merrickDiscordWiper").waitFor();
-  const viewport = page.viewportSize();
-  await page.mouse.click(viewport.width - 115, viewport.height - 36);
   await page.waitForFunction(() => window.frames.length > 0);
   let frame;
   for (let attempt = 0; attempt < 100; attempt++) {
@@ -118,6 +130,7 @@ try {
     args: [`--disable-extensions-except=${extensionRoot}`, `--load-extension=${extensionRoot}`, "--disable-background-networking"]
   });
   context.setDefaultTimeout(15000);
+  extensionWorker = context.serviceWorkers()[0] ?? await context.waitForEvent("serviceworker");
   context.on("page", page => page.on("pageerror", error => browserErrors.push(error.message)));
   await context.route("**/*", async route => {
     const request = route.request();
