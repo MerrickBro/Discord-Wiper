@@ -4,8 +4,8 @@
 
 | Module | Responsibility | Credential access |
 | --- | --- | --- |
-| `content.js` | Closed-shadow launcher; extension iframe; current-channel/visibility bridge | None |
-| `background.js` | Toolbar toggle; trusted storage access level | None |
+| `content.js` | User-triggered closed-shadow launcher; extension iframe; current-channel/visibility bridge | None |
+| `background.js` | Toolbar activation; on-demand `content.js` injection; trusted storage access level | None |
 | `panel.html` / `panel.js` | Extension-origin input fields; opt-in persistence; status; explicit confirmation | Masked input/private remembered value; passes token directly to engine |
 | `core/wiper.js` | Verified author, pagination, frozen candidate IDs, state transitions | Constructs private client; no public token property |
 | `core/discordClient.js` | Fixed Discord endpoints, serialized requests, cooldown/retry policy | Private `#token`; Authorization header only |
@@ -19,6 +19,10 @@
 | `core/runMetrics.js` | Injected-clock elapsed time, observed progress, and remaining-time estimates | None |
 
 The iframe shares an extension origin with other instances of this extension, not Discord. Only its bundled scripts execute there. CSP restricts connections to `https://discord.com` and forbids remote/inline scripts, objects, form navigation, and unrelated framing origins. The parent bridge validates both origin and source, plus a per-frame ID, and carries only channel IDs and visibility messages. There is no network proxy or deletion command exposed to Discord's page.
+
+## Activation lifecycle
+
+The manifest does not register a `content_scripts` entry. Loading or reloading Discord leaves the page untouched: no launcher, iframe, or bridge is mounted. A toolbar click on a supported Discord tab causes the service worker to inject the bundled `content.js` with `chrome.scripting.executeScript`, then sends the toggle message that opens the panel. The content script has its own duplicate-mount guard, so later toolbar clicks only toggle the existing instance. Reloading or navigating away destroys that page instance and requires another toolbar click. Clicking the extension from a non-Discord tab only opens Discord; it does not inject code into that unrelated page.
 
 ## State transitions
 
