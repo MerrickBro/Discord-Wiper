@@ -10,7 +10,8 @@ const manifest = JSON.parse(await readFile(resolve(extensionRoot, "manifest.json
 const packageJson = JSON.parse(await readFile(resolve(projectRoot, "package.json"), "utf8"));
 assert.equal(manifest.manifest_version, 3);
 assert.equal(manifest.version, packageJson.version);
-assert.deepEqual(manifest.permissions, ["storage"]);
+assert.deepEqual(manifest.permissions, ["storage", "activeTab", "scripting"]);
+assert.equal("content_scripts" in manifest, false);
 assert.deepEqual(manifest.host_permissions, ["https://discord.com/*", "https://ptb.discord.com/*", "https://canary.discord.com/*"]);
 assert.ok(!manifest.externally_connectable);
 assert.ok(!manifest.content_security_policy.extension_pages.includes("unsafe-"));
@@ -29,7 +30,7 @@ async function allFiles(directory) {
 const files = await allFiles(extensionRoot);
 const extensionPaths = new Set(files.map(path => relative(extensionRoot, path).replaceAll("\\", "/")));
 const namedResources = [manifest.background.service_worker, ...Object.values(manifest.icons),
-  ...Object.values(manifest.action.default_icon), ...manifest.content_scripts.flatMap(script => script.js), "panel.html", "panel.css", "panel.js"];
+  ...Object.values(manifest.action.default_icon), "content.js", "panel.html", "panel.css", "panel.js"];
 for (const resource of namedResources) assert.ok(extensionPaths.has(resource), `Missing resource: ${resource}`);
 for (const script of files.filter(path => path.endsWith(".js"))) {
   const syntax = spawnSync(process.execPath, ["--check", script], { encoding: "utf8" });
@@ -46,6 +47,9 @@ for (const script of files.filter(path => path.endsWith(".js"))) {
     }
   }
 }
+const backgroundSource = await readFile(resolve(extensionRoot, manifest.background.service_worker), "utf8");
+assert.ok(backgroundSource.includes("chrome.action.onClicked"), "Toolbar activation handler is required");
+assert.ok(backgroundSource.includes("chrome.scripting.executeScript"), "Content script must be injected on toolbar activation");
 const html = await readFile(resolve(extensionRoot, "panel.html"), "utf8");
 for (const match of html.matchAll(/(?:src|href)="([^"#]+)"/g)) {
   if (!match[1].startsWith("https://")) assert.ok(extensionPaths.has(match[1]), `Missing HTML resource: ${match[1]}`);

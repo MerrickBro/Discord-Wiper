@@ -2,6 +2,8 @@
 
 Merrick's Discord Wiper has no backend, analytics, telemetry, advertising, or external account connection.
 
+The extension does not register an automatically running content script. Discord pages are left untouched until you click the extension's toolbar icon on that tab. Reloading or navigating away removes that injected page bridge and another toolbar click is required to activate it again.
+
 ## Transient data
 
 - By default, your authorization token exists only in an extension-origin input field and a private client field while the preview/deletion session is active. If remembering is enabled, the panel also keeps a private remembered-value reference and restores the masked input between runs. The extension sends tokens only to Discord's canonical HTTPS API in the Authorization header.
