@@ -1,6 +1,6 @@
 {
   "name": "merrick-discord-wiper",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "private": true,
   "type": "module",
   "description": "A local, owner-only Discord message cleanup extension.",
@@ -10,5 +10,7 @@
     "check": "node scripts/check.mjs",
     "package": "python3 scripts/package.py"
   },
-  "engines": { "node": ">=20" }
+  "engines": {
+    "node": ">=20"
+  }
 }
