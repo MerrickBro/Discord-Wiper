@@ -4,48 +4,18 @@
   "version": "0.4.2",
   "description": "Preview and delete your own Discord messages with explicit confirmation, pause controls, and rate-limit cooldowns.",
   "minimum_chrome_version": "114",
-  "permissions": [
-    "storage",
-    "activeTab",
-    "scripting"
-  ],
-  "host_permissions": [
-    "https://discord.com/*",
-    "https://ptb.discord.com/*",
-    "https://canary.discord.com/*"
-  ],
-  "background": {
-    "service_worker": "background.js",
-    "type": "module"
-  },
+  "permissions": ["storage", "activeTab", "scripting"],
+  "host_permissions": ["https://discord.com/*", "https://ptb.discord.com/*", "https://canary.discord.com/*"],
+  "background": { "service_worker": "background.js", "type": "module" },
   "action": {
     "default_title": "Open Merrick's Discord Wiper on Discord",
-    "default_icon": {
-      "16": "icons/icon16.png",
-      "32": "icons/icon32.png"
-    }
+    "default_icon": { "16": "icons/icon16.png", "32": "icons/icon32.png" }
   },
-  "icons": {
-    "16": "icons/icon16.png",
-    "32": "icons/icon32.png",
-    "48": "icons/icon48.png",
-    "128": "icons/icon128.png"
-  },
-  "web_accessible_resources": [
-    {
-      "resources": [
-        "panel.html",
-        "panel.css",
-        "panel.js",
-        "core/*.js"
-      ],
-      "matches": [
-        "https://discord.com/*",
-        "https://ptb.discord.com/*",
-        "https://canary.discord.com/*"
-      ]
-    }
-  ],
+  "icons": { "16": "icons/icon16.png", "32": "icons/icon32.png", "48": "icons/icon48.png", "128": "icons/icon128.png" },
+  "web_accessible_resources": [{
+    "resources": ["panel.html", "panel.css", "panel.js", "core/*.js"],
+    "matches": ["https://discord.com/*", "https://ptb.discord.com/*", "https://canary.discord.com/*"]
+  }],
   "content_security_policy": {
     "extension_pages": "default-src 'self'; script-src 'self'; style-src 'self'; object-src 'none'; connect-src https://discord.com; frame-ancestors https://discord.com https://ptb.discord.com https://canary.discord.com; base-uri 'none'; form-action 'none'"
   }
