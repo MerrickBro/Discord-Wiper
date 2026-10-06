@@ -123,6 +123,10 @@ Stop any active run, replace the files in your existing unpacked extension folde
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the state machine and module contracts, and [docs/PRIVACY.md](docs/PRIVACY.md) for data handling.
 
+## License
+
+Licensed under the [MIT License](LICENSE). You may use, modify, and redistribute the software under the terms of that license.
+
 ## Primary references
 
 - [Discord self-bot policy](https://support.discord.com/hc/en-us/articles/115002192352-Automated-User-Accounts-Self-Bots)
