@@ -15,6 +15,7 @@ with ZipFile(archivePath, "w", ZIP_DEFLATED) as archive:
         if sourcePath.is_file():
             archive.write(sourcePath, f"{prefix}/{sourcePath.relative_to(extensionRoot).as_posix()}")
     archive.write(projectRoot / "README.md", f"{prefix}/README.md")
+    archive.write(projectRoot / "LICENSE", f"{prefix}/LICENSE")
     for sourcePath in sorted((projectRoot / "docs").glob("*.md")):
         archive.write(sourcePath, f"{prefix}/docs/{sourcePath.name}")
 
