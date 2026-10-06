@@ -57,11 +57,11 @@ const advancedMessages = [
 ];
 
 async function activateWiper(page) {
+  await page.bringToFront();
   const targetUrl = page.url();
   await extensionWorker.evaluate(async url => {
-    const tabs = await chrome.tabs.query({});
-    const tab = tabs.find(candidate => candidate.url === url);
-    if (!tab?.id) throw new Error("Discord tab was not found");
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!tab?.id || tab.url !== url) throw new Error("Active Discord tab was not found");
     await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ["content.js"] });
     await chrome.tabs.sendMessage(tab.id, { type: "merrickWiperToggle" });
   }, targetUrl);
