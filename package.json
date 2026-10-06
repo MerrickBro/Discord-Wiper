@@ -10,5 +10,8 @@
     "check": "node scripts/check.mjs",
     "package": "python3 scripts/package.py"
   },
-  "engines": { "node": ">=20" }
+  "engines": {
+    "node": ">=20"
+  },
+  "license": "MIT"
 }
